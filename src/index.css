@@ -1,0 +1,61 @@
+:root {
+  --text: #4a4438;
+  --text-h: #26241d;
+  --bg: #faf7f0;
+  --surface: #ffffff;
+  --border: #e4ddca;
+  --accent: #d95d39;
+  --accent-dark: #b6431f;
+  --accent-bg: rgba(217, 93, 57, 0.1);
+  --leaf: #4f7a5c;
+  --leaf-bg: rgba(79, 122, 92, 0.12);
+  --shadow: rgba(38, 36, 29, 0.08) 0 6px 20px -4px;
+
+  --sans: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  font: 16px/1.6 var(--sans);
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #cbc4b3;
+    --text-h: #f5f1e6;
+    --bg: #1b1a16;
+    --surface: #24231d;
+    --border: #3a382e;
+    --accent: #ef7b52;
+    --accent-dark: #f4a17f;
+    --accent-bg: rgba(239, 123, 82, 0.15);
+    --leaf: #7fae8c;
+    --leaf-bg: rgba(127, 174, 140, 0.15);
+    --shadow: rgba(0, 0, 0, 0.4) 0 6px 20px -4px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+h1, h2, h3 {
+  color: var(--text-h);
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+}
