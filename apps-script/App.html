@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <base target="_top" />
+    <style>
+      :root {
+        --bg: #f4f5f7;
+        --card: #ffffff;
+        --line: #e3e5e8;
+        --text: #1c1f24;
+        --muted: #6b7280;
+        --accent: #1a73e8;
+        --ok: #1e8e3e;
+        --warn: #e8710a;
+        --alert: #d93025;
+        --ok-bg: #e6f4ea;
+        --warn-bg: #fef3e2;
+        --alert-bg: #fce8e6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #15181c;
+          --card: #1f2328;
+          --line: #2f343a;
+          --text: #e8eaed;
+          --muted: #9aa0a6;
+          --accent: #8ab4f8;
+          --ok: #81c995;
+          --warn: #fdd663;
+          --alert: #f28b82;
+          --ok-bg: #1e3226;
+          --warn-bg: #3a3020;
+          --alert-bg: #3d2220;
+        }
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      body {
+        margin: 0;
+        padding: 0 0 88px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans',
+          'Noto Sans JP', 'Yu Gothic', sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      header {
+        position: sticky; top: 0; z-index: 10;
+        background: var(--card); border-bottom: 1px solid var(--line);
+        padding: 12px 16px calc(12px + env(safe-area-inset-top));
+        display: flex; align-items: center; gap: 10px;
+      }
+      header h1 { font-size: 17px; margin: 0; flex: 1; }
+      header .updated { font-size: 11px; color: var(--muted); font-weight: normal; display: block; }
+      .icon-btn {
+        border: 1px solid var(--line); background: transparent; color: var(--text);
+        border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+      }
+      main { padding: 12px 12px 0; max-width: 620px; margin: 0 auto; }
+      .view { display: none; }
+      .view.active { display: block; }
+
+      .card {
+        background: var(--card); border: 1px solid var(--line);
+        border-radius: 14px; padding: 14px 16px; margin-bottom: 12px;
+      }
+      .card h2 { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; letter-spacing: .04em; }
+      .card h3 { font-size: 15px; margin: 0 0 2px; }
+
+      .badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 999px; }
+      .s-正常 { color: var(--ok); background: var(--ok-bg); }
+      .s-注意 { color: var(--warn); background: var(--warn-bg); }
+      .s-警告, .s-要確認 { color: var(--alert); background: var(--alert-bg); }
+      .s-OK { color: var(--ok); background: var(--ok-bg); }
+
+      .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
+      .big.neg { color: var(--alert); }
+      .sub { font-size: 12px; color: var(--muted); }
+      .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+      .row + .row { margin-top: 6px; }
+      .row .k { color: var(--muted); font-size: 13px; }
+      .row .v { font-variant-numeric: tabular-nums; }
+      .strong { font-weight: 700; }
+      .divider { border-top: 1px solid var(--line); margin: 10px 0; }
+
+      .bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 10px 0 6px; }
+      .bar > i { display: block; height: 100%; border-radius: 999px; }
+      .f-正常 { background: var(--ok); }
+      .f-注意 { background: var(--warn); }
+      .f-警告 { background: var(--alert); }
+
+      ul.list { list-style: none; margin: 0; padding: 0; }
+      ul.list li { padding: 9px 0; border-top: 1px solid var(--line); }
+      ul.list li:first-child { border-top: 0; }
+      .muted { color: var(--muted); }
+      .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+
+      label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
+      input, select, textarea {
+        width: 100%; padding: 10px 12px; font-size: 16px; color: var(--text);
+        background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+        font-family: inherit;
+      }
+      button.primary {
+        width: 100%; margin-top: 14px; padding: 12px; font-size: 15px; font-weight: 600;
+        border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer;
+      }
+      button.primary:disabled { opacity: .5; }
+      button.small {
+        padding: 7px 12px; font-size: 13px; border-radius: 8px;
+        border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer;
+      }
+      .inline { display: flex; gap: 8px; align-items: center; }
+      .inline input { flex: 1; }
+      .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+      .check input { width: 18px; height: 18px; }
+      a { color: var(--accent); }
+
+      nav {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+        display: flex; background: var(--card); border-top: 1px solid var(--line);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      nav button {
+        flex: 1; border: 0; background: transparent; color: var(--muted);
+        padding: 9px 0 11px; font-size: 11px; cursor: pointer; font-family: inherit;
+      }
+      nav button .ico { display: block; font-size: 19px; line-height: 1.3; }
+      nav button.active { color: var(--accent); font-weight: 700; }
+
+      #toast {
+        position: fixed; left: 50%; bottom: 78px; transform: translateX(-50%);
+        background: #202124; color: #fff; padding: 10px 18px; border-radius: 10px;
+        font-size: 13px; max-width: 88%; z-index: 40; display: none; box-shadow: 0 4px 16px rgba(0,0,0,.3);
+      }
+      #busy {
+        position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 50;
+        display: none; align-items: center; justify-content: center;
+      }
+      #busy div { background: var(--card); padding: 14px 22px; border-radius: 12px; font-size: 14px; }
+      .disclaimer {
+        font-size: 11px; color: var(--muted); line-height: 1.6;
+        border-top: 1px solid var(--line); padding: 12px 4px 20px; margin-top: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>年収の壁 <span class="updated" id="updated">読み込み中…</span></h1>
+      <button class="icon-btn" id="reload">更新</button>
+    </header>
+
+    <main>
+      <section class="view active" id="view-home"></section>
+      <section class="view" id="view-income"></section>
+      <section class="view" id="view-reconcile"></section>
+      <section class="view" id="view-settings"></section>
+      <div class="disclaimer" id="disclaimer"></div>
+    </main>
+
+    <nav>
+      <button data-view="home" class="active"><span class="ico">🏠</span>ホーム</button>
+      <button data-view="income"><span class="ico">💴</span>収入</button>
+      <button data-view="reconcile"><span class="ico">✅</span>照合</button>
+      <button data-view="settings"><span class="ico">⚙️</span>設定</button>
+    </nav>
+
+    <div id="toast"></div>
+    <div id="busy"><div>処理中…</div></div>
+
+    <script>
+      var DATA = JSON.parse('<?!= bootstrapJson ?>');
+      var CURRENT = 'home';
+
+      /* ---------- 小物 ---------- */
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+      function yen(n) {
+        var v = Math.round(Number(n) || 0);
+        var sign = v < 0 ? '-' : '';
+        return sign + Math.abs(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円';
+      }
+      function pct(r) { return Math.round((Number(r) || 0) * 100) + '%'; }
+      function clamp(r) { return Math.max(0, Math.min(100, Math.round((Number(r) || 0) * 100))); }
+      function el(id) { return document.getElementById(id); }
+      function toast(msg) {
+        var t = el('toast');
+        t.textContent = msg;
+        t.style.display = 'block';
+        clearTimeout(t._timer);
+        t._timer = setTimeout(function () { t.style.display = 'none'; }, 4200);
+      }
+      function busy(on) { el('busy').style.display = on ? 'flex' : 'none'; }
+
+      function call(fnName, arg, onDone) {
+        busy(true);
+        var runner = google.script.run
+          .withSuccessHandler(function (res) {
+            busy(false);
+            if (res && res.data) DATA = res.data;
+            else if (res) DATA = res;
+            render();
+            if (onDone) onDone(res);
+            else if (res && res.message) toast(res.message);
+          })
+          .withFailureHandler(function (err) {
+            busy(false);
+            toast('エラー: ' + err.message);
+          });
+        if (arg === undefined) runner[fnName]();
+        else runner[fnName](arg);
+      }
+
+      function bar(ratio, status) {
+        return '<div class="bar"><i class="f-' + esc(status) + '" style="width:' + clamp(ratio) + '%"></i></div>';
+      }
+      function card(title, inner) {
+        return '<div class="card">' + (title ? '<h2>' + esc(title) + '</h2>' : '') + inner + '</div>';
+      }
+      function row(k, v, strong) {
+        return '<div class="row"><span class="k">' + esc(k) + '</span><span class="v' + (strong ? ' strong' : '') + '">' + v + '</span></div>';
+      }
+
+      /* ---------- ホーム ---------- */
+      function renderHome() {
+        var d = DATA;
+        var html = '';
+
+        html += card(
+          '年間収入（額面） ' + d.targetYear + '年',
+          '<div class="big">' + yen(d.annual.totalRevenue) + '</div>' +
+            '<div class="sub">給与 ' + yen(d.annual.salaryRevenue) +
+            ' ／ 事業 ' + yen(d.annual.businessRevenue) +
+            ' ／ 雑 ' + yen(d.annual.miscRevenue) + '</div>'
+        );
+
+        d.walls.forEach(function (w) {
+          var over = w.remaining < 0;
+          html += card(
+            w.name + 'の壁',
+            '<div class="row"><h3>' + (over ? '超過' : '残り') + '</h3><span class="badge s-' + esc(w.status) + '">' + esc(w.status) + '</span></div>' +
+              '<div class="big' + (over ? ' neg' : '') + '">' + yen(Math.abs(w.remaining)) + '</div>' +
+              bar(w.ratio, w.status) +
+              '<div class="row"><span class="sub">' + yen(w.amount) + ' のうち ' + pct(w.ratio) + '</span>' +
+              '<span class="sub">更新 ' + esc(w.lastUpdated) + '</span></div>' +
+              (w.note ? '<div class="sub" style="margin-top:6px">' + esc(w.note) + '</div>' : '')
+          );
+        });
+
+        var hoursHtml = '';
+        if (!d.hours.length) {
+          hoursHtml = '<div class="empty">今月の勤務データはまだありません</div>';
+        } else {
+          d.hours.forEach(function (h) {
+            hoursHtml +=
+              '<div style="margin-bottom:14px">' +
+              '<div class="row"><h3>' + esc(h.companyName) + '</h3><span class="badge s-' + esc(h.status) + '">' + esc(h.status) + '</span></div>' +
+              bar(h.ratio, h.status) +
+              '<div class="row"><span class="sub">' + h.hours + ' / ' + h.limit + ' 時間（' + pct(h.ratio) + '）' +
+              (h.confirmed ? '' : ' ・上限は暫定') + '</span>' +
+              '<span class="sub">' + h.days + '日 ' + yen(h.amount) + '</span></div>' +
+              '</div>';
+          });
+        }
+        html += card(
+          '今月（' + d.yearMonth + '）の労働時間　上限の' + d.warnPercent + '%で注意・' + d.alertPercent + '%で警告',
+          hoursHtml
+        );
+
+        var listHtml = '';
+        if (!d.recentEntries.length) {
+          listHtml = '<div class="empty">まだ取り込まれた勤務がありません</div>';
+        } else {
+          listHtml = '<ul class="list">';
+          d.recentEntries.forEach(function (e) {
+            listHtml +=
+              '<li><div class="row"><span>' + esc(e.date.slice(5)) + ' ' + esc(e.companyName) + (e.reconciled ? ' <span class="sub">照合済</span>' : '') + '</span>' +
+              '<span class="v strong">' + yen(e.amount) + '</span></div>' +
+              '<div class="sub">' + esc(e.startTime) + '-' + esc(e.endTime) + ' ／ ' + e.workedHours + '時間</div></li>';
+          });
+          listHtml += '</ul>';
+        }
+        html += card('直近の勤務', listHtml);
+
+        el('view-home').innerHTML = html;
+      }
+
+      /* ---------- 収入 ---------- */
+      function renderIncome() {
+        var a = DATA.annual;
+        var html = '';
+
+        html += card(
+          '年間収入（額面）の内訳　※源泉徴収前の総支給額',
+          row('給与収入（カレンダー）', yen(a.calendarRevenue)) +
+            row('給与収入（手入力）', yen(a.manualSalaryRevenue)) +
+            row('事業収入', yen(a.businessRevenue)) +
+            row('雑収入', yen(a.miscRevenue)) +
+            '<div class="divider"></div>' +
+            row('合計（壁の判定に使用）', yen(a.totalRevenue), true)
+        );
+
+        html += card(
+          '合計所得金額　※収入額とは別の数値。税金の壁の判定に使う',
+          row('給与所得', yen(a.salaryIncome)) +
+            '<div class="sub">給与収入 ' + yen(a.salaryRevenue) + ' − 給与所得控除 ' + yen(a.salaryDeduction) + '</div>' +
+            row('事業所得', yen(a.businessIncome)) +
+            '<div class="sub">事業収入 ' + yen(a.businessRevenue) + ' − 必要経費 ' + yen(a.businessExpenses) + '</div>' +
+            row('雑所得', yen(a.miscIncome)) +
+            '<div class="divider"></div>' +
+            row('合計所得金額', yen(a.totalIncome), true)
+        );
+
+        var manualHtml = '';
+        if (!DATA.manualEntries.length) {
+          manualHtml = '<div class="empty">未登録です。業務委託分などをここに登録してください</div>';
+        } else {
+          manualHtml = '<ul class="list">';
+          DATA.manualEntries.forEach(function (m) {
+            manualHtml +=
+              '<li><div class="row"><span>' + esc(m.sourceName) + '</span><span class="v strong">' + yen(m.amount) + '</span></div>' +
+              '<div class="sub">' + esc(m.category) + ' ／ ' + esc(m.period) +
+              (m.expenses ? ' ／ 経費 ' + yen(m.expenses) : '') + '</div></li>';
+          });
+          manualHtml += '</ul>';
+        }
+        html += card('カレンダー外の収入（手入力）', manualHtml);
+
+        var options = DATA.categories.map(function (c) {
+          return '<option value="' + esc(c) + '"' + (c === '事業所得' ? ' selected' : '') + '>' + esc(c) + '</option>';
+        }).join('');
+        html += card(
+          '収入を追加',
+          '<label for="mi-name">収入元</label><input id="mi-name" placeholder="例: 〇〇業務委託" />' +
+            '<label for="mi-cat">区分</label><select id="mi-cat">' + options + '</select>' +
+            '<label for="mi-period">対象期間（年が分かる形で）</label><input id="mi-period" placeholder="例: 2026-03〜2026-05" />' +
+            '<label for="mi-amount">金額（額面・円）</label><input id="mi-amount" type="number" inputmode="numeric" />' +
+            '<label for="mi-exp">必要経費（円）</label><input id="mi-exp" type="number" inputmode="numeric" value="0" />' +
+            '<button class="primary" id="mi-save">登録する</button>'
+        );
+
+        el('view-income').innerHTML = html;
+        el('mi-save').addEventListener('click', function () {
+          call('appAddManualIncome', {
+            sourceName: el('mi-name').value,
+            category: el('mi-cat').value,
+            period: el('mi-period').value,
+            amount: el('mi-amount').value,
+            expenses: el('mi-exp').value
+          }, function (res) { toast(res.message); });
+        });
+      }
+
+      /* ---------- 照合 ---------- */
+      function renderReconcile() {
+        var form = DATA.reconcileForm;
+        var monthOpts = form.months.map(function (m) { return '<option>' + esc(m) + '</option>'; }).join('');
+        var compOpts = form.companies.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+
+        var html = card(
+          '月次の答え合わせ',
+          '<div class="sub">給与明細・支給照会の合計額（額面）を入れると、カレンダーからの推定額との差を確認できます。</div>' +
+            '<label for="rc-month">対象月</label><select id="rc-month">' + monthOpts + '</select>' +
+            '<label for="rc-company">勤務先</label><select id="rc-company">' + compOpts + '</select>' +
+            '<div class="divider"></div>' +
+            '<div class="row"><span class="k">カレンダー推定額</span><span class="v big" id="rc-est" style="font-size:22px">-</span></div>' +
+            '<label for="rc-actual">実際の支給額（額面・円）</label><input id="rc-actual" type="number" inputmode="numeric" />' +
+            '<label for="rc-note">メモ（任意）</label><input id="rc-note" placeholder="交通費込み など" />' +
+            '<button class="primary" id="rc-save">保存して差分を見る</button>'
+        );
+
+        var histHtml = '';
+        if (!DATA.reconcileEntries.length) {
+          histHtml = '<div class="empty">まだ入力がありません</div>';
+        } else {
+          histHtml = '<ul class="list">';
+          DATA.reconcileEntries.forEach(function (r) {
+            histHtml +=
+              '<li><div class="row"><span>' + esc(r.yearMonth) + ' ' + esc(r.companyName) + '</span>' +
+              '<span class="badge s-' + esc(r.status) + '">' + esc(r.status) + '</span></div>' +
+              '<div class="sub">推定 ' + yen(r.estimated) + ' ／ 実額 ' + yen(r.actual) + ' ／ 差分 ' + yen(r.diff) + '</div></li>';
+          });
+          histHtml += '</ul>';
+        }
+        html += card('履歴', histHtml);
+
+        el('view-reconcile').innerHTML = html;
+
+        function updateEstimate() {
+          var key = el('rc-month').value + '\t' + el('rc-company').value;
+          var v = form.estimates[key];
+          el('rc-est').textContent = v === undefined ? '-' : yen(v);
+        }
+        el('rc-month').addEventListener('change', updateEstimate);
+        el('rc-company').addEventListener('change', updateEstimate);
+        updateEstimate();
+
+        el('rc-save').addEventListener('click', function () {
+          if (el('rc-actual').value === '') { toast('実際の支給額を入力してください'); return; }
+          call('appSaveReconciliation', {
+            yearMonth: el('rc-month').value,
+            companyName: el('rc-company').value,
+            actualAmount: el('rc-actual').value,
+            note: el('rc-note').value
+          }, function (res) { toast(res.result.message); });
+        });
+      }
+
+      /* ---------- 設定 ---------- */
+      function renderSettings() {
+        var html = '';
+        var limitsHtml = '';
+        if (!DATA.limits.length) {
+          limitsHtml = '<div class="empty">勤務先はカレンダーの取り込み時に自動登録されます</div>';
+        } else {
+          DATA.limits.forEach(function (l, i) {
+            limitsHtml +=
+              '<div style="margin-bottom:16px">' +
+              '<div class="row"><h3>' + esc(l.companyName) + '</h3>' +
+              '<span class="badge s-' + (l.confirmed ? '正常">確定' : '注意">暫定') + '</span></div>' +
+              '<div class="inline" style="margin-top:8px">' +
+              '<input type="number" inputmode="numeric" id="lim-' + i + '" value="' + l.limit + '" />' +
+              '<span class="sub">時間/月</span>' +
+              '<button class="small" data-limit="' + i + '">保存</button></div>' +
+              '<label class="check"><input type="checkbox" id="cfm-' + i + '"' + (l.confirmed ? ' checked' : '') + ' />会社から正式な回答をもらった</label>' +
+              '</div>';
+          });
+        }
+        html += card(
+          '勤務先ごとの月間上限（4分の3基準）',
+          '<div class="sub" style="margin-bottom:12px">正社員の所定労働時間の回答が来たら、暫定値' +
+            DATA.defaultMonthlyLimit + '時間を実数に差し替えてください。</div>' + limitsHtml
+        );
+
+        html += card(
+          'カレンダーの取り込み',
+          '<div class="sub">毎日23:30に自動で取り込まれます。手動で取り込みたいときはこちら。</div>' +
+            '<button class="primary" id="run-today">今日の分を取り込む</button>' +
+            '<label for="imp-date">日付を指定して取り込み直す</label>' +
+            '<div class="inline"><input id="imp-date" placeholder="2026-08-20" /><button class="small" id="imp-run">実行</button></div>'
+        );
+
+        html += card(
+          'データ',
+          '<div class="sub">明細の修正や過去データの一括編集はスプレッドシートから行えます。</div>' +
+            '<div style="margin-top:10px"><a href="' + esc(DATA.spreadsheetUrl) + '" target="_blank" rel="noopener">スプレッドシートを開く</a></div>' +
+            '<div class="sub" style="margin-top:10px">最終更新 ' + esc(DATA.generatedAt) + '</div>'
+        );
+
+        el('view-settings').innerHTML = html;
+
+        Array.prototype.forEach.call(document.querySelectorAll('[data-limit]'), function (btn) {
+          btn.addEventListener('click', function () {
+            var i = btn.getAttribute('data-limit');
+            call('appSaveCompanyLimit', {
+              companyName: DATA.limits[i].companyName,
+              limit: el('lim-' + i).value,
+              confirmed: el('cfm-' + i).checked
+            }, function (res) { toast(res.message); });
+          });
+        });
+        el('run-today').addEventListener('click', function () {
+          call('appRunToday', undefined, function () { toast('今日の予定を取り込みました'); });
+        });
+        el('imp-run').addEventListener('click', function () {
+          call('appImportDate', el('imp-date').value, function (res) {
+            toast(res.message);
+            if (res.errors && res.errors.length) toast(res.errors[0]);
+          });
+        });
+      }
+
+      /* ---------- 描画 ---------- */
+      function render() {
+        if (DATA.error) {
+          el('view-home').innerHTML = card('エラー', '<div class="sub">' + esc(DATA.error) + '</div>');
+          el('updated').textContent = '';
+          el('disclaimer').textContent = DATA.disclaimer || '';
+          return;
+        }
+        el('updated').textContent = DATA.generatedAt + '　' + DATA.level;
+        el('disclaimer').textContent = DATA.disclaimer;
+        renderHome();
+        renderIncome();
+        renderReconcile();
+        renderSettings();
+      }
+
+      Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (btn) {
+        btn.addEventListener('click', function () {
+          CURRENT = btn.getAttribute('data-view');
+          Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
+            b.classList.toggle('active', b === btn);
+          });
+          Array.prototype.forEach.call(document.querySelectorAll('.view'), function (v) {
+            v.classList.toggle('active', v.id === 'view-' + CURRENT);
+          });
+          window.scrollTo(0, 0);
+        });
+      });
+
+      el('reload').addEventListener('click', function () {
+        call('appRefresh', undefined, function () { toast('最新の状態にしました'); });
+      });
+
+      render();
+    </script>
+  </body>
+</html>

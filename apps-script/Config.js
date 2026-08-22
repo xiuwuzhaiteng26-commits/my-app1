@@ -1,0 +1,99 @@
+/**
+ * 設定ファイル
+ *
+ * 壁の金額・会社ごとの労働時間上限などの「年度や会社の回答によって変わる値」は
+ * ここと、スプレッドシートの wall_thresholds / company_hour_limits シートで管理する。
+ * ロジック側にはハードコードしないこと。
+ *
+ * ここの値は「初回セットアップ時にシートへ書き込まれる初期値」。
+ * 運用開始後はスプレッドシート側の値が優先される（スマホから直接直せるようにするため）。
+ */
+var CONFIG = {
+  /** 設定そのものの最終更新日（年度更新したら必ず更新する） */
+  configLastUpdated: '2026-08-22',
+
+  /** タイムゾーン（日付の切れ目の判定に使う） */
+  timeZone: 'Asia/Tokyo',
+
+  /** 読み取るカレンダー。'primary' でログインアカウントのデフォルトカレンダー */
+  calendarId: 'primary',
+
+  /** 集計対象年。0 なら実行日の年を使う */
+  targetYear: 0,
+
+  /** 労働時間の警告（4分の3基準の暫定運用） */
+  hours: {
+    /** 会社ごとの月間実働時間の暫定上限。正社員の所定労働時間の回答が来たら会社ごとに差し替える */
+    defaultMonthlyLimit: 120,
+    /** 上限のこの割合に達したら「注意」 */
+    warnRatio: 0.8,
+    /** 上限のこの割合に達したら「警告」 */
+    alertRatio: 1.0
+  },
+
+  /** 年収の壁（暫定値・年度更新前提） */
+  walls: {
+    /** 壁のこの割合に達したら「注意」 */
+    warnRatio: 0.9,
+    thresholds: [
+      {
+        name: '123万円',
+        amount: 1230000,
+        applicableYear: 2026,
+        lastUpdated: '2026-08-22',
+        note: '所得税・扶養控除に関する壁の目安'
+      },
+      {
+        name: '130万円',
+        amount: 1300000,
+        applicableYear: 2026,
+        lastUpdated: '2026-08-22',
+        note: '社会保険の被扶養者認定に関する壁の目安'
+      }
+    ]
+  },
+
+  /**
+   * 給与所得控除（合計所得金額の計算に使う）。
+   * deduction = min(収入, max(minimum, 収入 * rate + plus))
+   * このツールが主に扱うのは収入190万円以下の範囲なので、そこでは一律 minimum(65万円)になる。
+   */
+  salaryDeduction: {
+    minimum: 650000,
+    lastUpdated: '2026-08-22',
+    brackets: [
+      { upTo: 1900000, rate: 0, plus: 650000 },
+      { upTo: 3600000, rate: 0.3, plus: 80000 },
+      { upTo: 6600000, rate: 0.2, plus: 440000 },
+      { upTo: 8500000, rate: 0.1, plus: 1100000 },
+      { upTo: null, rate: 0, plus: 1950000 }
+    ]
+  },
+
+  /** 月次の答え合わせ（給与明細との差分がこれを超えたら警告） */
+  reconcile: {
+    toleranceRate: 0.05,
+    toleranceAmount: 3000
+  },
+
+  /**
+   * 通知設定。
+   *   'sheet'   … サマリーシートと実行ログの更新のみ（外部送信なし・既定）
+   *   'email'   … 実行アカウントのGmailへメール送信
+   *   'webhook' … Slack / Discord / 任意のWebhookへPOST
+   */
+  notify: {
+    channel: 'email',
+    /** 空ならスクリプト実行アカウントのメールアドレス宛 */
+    emailTo: '',
+    /** channel が 'sheet' でも、注意・警告が出た日だけはメールを送りたい場合は true */
+    alwaysNotifyOnAlert: false,
+    webhookUrl: '',
+    /** 'slack' | 'discord' | 'json' */
+    webhookFormat: 'slack'
+  },
+
+  /** 免責表示（サマリーシート先頭と全通知の末尾に常時表示する） */
+  disclaimer:
+    '【免責】本ツールの金額・時間の壁は目安であり、正式な判断は税務署・年金事務所・各勤務先の労務担当に確認してください。'
+};
