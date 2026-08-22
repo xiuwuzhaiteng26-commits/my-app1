@@ -177,14 +177,62 @@ class FakeEvent {
   }
 }
 
+/** Apps Script が addMetaTag で受け付けるメタタグ（これ以外は例外になる） */
+const ALLOWED_META_TAGS = [
+  'viewport',
+  'mobile-web-app-capable',
+  'apple-mobile-web-app-capable',
+  'google-site-verification'
+];
+
+function makeHtmlOutput(content) {
+  const output = {
+    content,
+    title: '',
+    metaTags: [],
+    getContent: () => output.content,
+    getTitle: () => output.title,
+    setTitle(title) {
+      output.title = title;
+      return output;
+    },
+    addMetaTag(name, value) {
+      if (ALLOWED_META_TAGS.indexOf(name) < 0) {
+        throw new Error('指定したメタタグはこのコンテキストでは使用できません。');
+      }
+      output.metaTags.push([name, value]);
+      return output;
+    },
+    setWidth: () => output,
+    setHeight: () => output,
+    setXFrameOptionsMode: () => output
+  };
+  return output;
+}
+
+/** テンプレート（<?!= 変数 ?> だけを差し替える簡易版） */
+function makeHtmlTemplate(content) {
+  const template = {
+    evaluate() {
+      const rendered = content.replace(/<\?!?=\s*([A-Za-z_$][\w$]*)\s*\?>/g, (_, name) =>
+        template[name] === undefined ? '' : String(template[name])
+      );
+      return makeHtmlOutput(rendered);
+    }
+  };
+  return template;
+}
+
 /** eventsByDate: { 'yyyy-MM-dd': [{id,title,...}] } */
 export function makeSandbox(eventsByDate) {
   const spreadsheet = new FakeSpreadsheet();
   const sentMail = [];
   const alerts = [];
   const menu = { items: [] };
+  const dialogs = [];
   const ui = {
     alert: (message) => alerts.push(message),
+    showModalDialog: (output, title) => dialogs.push({ title, content: output.getContent() }),
     createMenu(name) {
       menu.name = name;
       const builder = {
@@ -233,6 +281,12 @@ export function makeSandbox(eventsByDate) {
       },
       MailApp: { sendEmail: (to, subject, body) => sentMail.push({ to, subject, body }) },
       UrlFetchApp: { fetch: () => ({}) },
+      HtmlService: {
+        createTemplate: (html) => makeHtmlTemplate(html),
+        createTemplateFromFile: (name) => makeHtmlTemplate(`<!-- ${name} -->`),
+        createHtmlOutput: (html) => makeHtmlOutput(html),
+        createHtmlOutputFromFile: (name) => makeHtmlOutput(`<!-- ${name} -->`)
+      },
       Logger: { log: () => {} },
       ScriptApp: {
         getProjectTriggers: () => [],
@@ -244,6 +298,7 @@ export function makeSandbox(eventsByDate) {
     spreadsheet,
     sentMail,
     alerts,
-    menu
+    menu,
+    dialogs
   };
 }

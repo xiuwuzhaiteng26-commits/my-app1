@@ -21,6 +21,7 @@ const files = [
   'CalendarSource.js',
   'Summary.js',
   'Notify.js',
+  'Html.js',
   'Reconcile.js',
   'SeedData.js',
   'Main.js',
@@ -72,7 +73,7 @@ const events = {
 
 // --bundle を付けると、生成された全部入り1ファイル版に対して同じテストを流す
 const useBundle = process.argv.includes('--bundle');
-const { sandbox, spreadsheet, sentMail, alerts, menu } = makeSandbox(events);
+const { sandbox, spreadsheet, sentMail, alerts, menu, dialogs } = makeSandbox(events);
 const context = vm.createContext(sandbox);
 if (useBundle) {
   const bundle = join(root, 'dist', 'all-in-one.gs');
@@ -278,6 +279,39 @@ const imported = run(`appImportDate('2026-08-20')`);
 check('アプリ: 日付指定で取り込み直せる', imported.message.indexOf('2026-08-20 を取り込みました') === 0, true);
 
 check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYear'), 2026);
+
+/* --- ウェブアプリの画面が実際に返せるか --- */
+{
+  let error = null;
+  let output = null;
+  try {
+    output = run('doGet()');
+  } catch (e) {
+    error = e.message;
+  }
+  check('画面: doGet が例外を出さない', error, null);
+  check('画面: タイトル', output && output.getTitle(), '年収の壁');
+  // Apps Script が許可していないメタタグを渡すと本番だけ落ちるので、ここで縛る
+  check(
+    '画面: メタタグは許可されたものだけ',
+    output && output.metaTags.map((m) => m[0]),
+    ['viewport', 'mobile-web-app-capable', 'apple-mobile-web-app-capable']
+  );
+  if (useBundle) {
+    check('画面: 中身が埋め込まれている', output.getContent().indexOf('<!DOCTYPE html>') === 0, true);
+    check('画面: データが差し込まれている', output.getContent().indexOf('"targetYear":2026') > 0, true);
+    check('画面: 生の差し込みタグが残っていない', output.getContent().indexOf('bootstrapJson') < 0, true);
+  }
+
+  let dialogError = null;
+  try {
+    run('openReconcileDialog()');
+  } catch (e) {
+    dialogError = e.message;
+  }
+  check('画面: 答え合わせダイアログが開ける', dialogError, null);
+  check('画面: ダイアログのタイトル', dialogs.length && dialogs[dialogs.length - 1].title, '月次の答え合わせ');
+}
 
 /* --- 毎日の実行は直近数日を見直す --- */
 check('毎日の実行: 過去7日分を見直す設定', run('CONFIG.daily.lookbackDays'), 7);

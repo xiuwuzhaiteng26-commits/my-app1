@@ -22,6 +22,7 @@ const files = [
   'CalendarSource.js',
   'Summary.js',
   'Notify.js',
+  'Html.js',
   'Reconcile.js',
   'SeedData.js',
   'Main.js',

@@ -21,13 +21,16 @@ function doGet() {
   // </script> でタグを閉じられないように < をエスケープしてから埋め込む
   template.bootstrapJson = JSON.stringify(payload).replace(/</g, '\\u003c');
 
+  // addMetaTag で指定できるのは viewport / mobile-web-app-capable /
+  // apple-mobile-web-app-capable / google-site-verification の4つだけ。
+  // それ以外を渡すと「指定したメタタグはこのコンテキストでは使用できません」で落ちる。
+  // ホーム画面に追加したときの名前は setTitle の値が使われる。
   return template
     .evaluate()
     .setTitle('年収の壁')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .addMetaTag('mobile-web-app-capable', 'yes')
-    .addMetaTag('apple-mobile-web-app-capable', 'yes')
-    .addMetaTag('apple-mobile-web-app-title', '年収の壁');
+    .addMetaTag('apple-mobile-web-app-capable', 'yes');
 }
 
 /** 画面に表示するデータ一式 */
