@@ -71,7 +71,7 @@ const events = {
 
 // --bundle を付けると、生成された全部入り1ファイル版に対して同じテストを流す
 const useBundle = process.argv.includes('--bundle');
-const { sandbox, spreadsheet, sentMail } = makeSandbox(events);
+const { sandbox, spreadsheet, sentMail, alerts, menu } = makeSandbox(events);
 const context = vm.createContext(sandbox);
 if (useBundle) {
   const bundle = join(root, 'dist', 'all-in-one.gs');
@@ -89,7 +89,24 @@ if (useBundle) {
   check('1ファイル版: セルフテストも同梱', run('typeof runTests'), 'function');
 }
 
-/* --- 初期セットアップ --- */
+/* --- メニューと初期セットアップ（利用者が最初に通る道） --- */
+run('onOpen()');
+check('メニュー: 名前', menu.name, '年収の壁ツール');
+check('メニュー: 全項目に対応する関数がある', menu.items.filter((i) => run(`typeof ${i.fn}`) !== 'function'), []);
+
+run('setupSheets()');
+const summaryAfterSetup = spreadsheet.getSheetByName('サマリー');
+check('セットアップ: サマリーに書き込まれる', summaryAfterSetup.getLastRow() > 10, true);
+check('セットアップ: 免責が先頭に出る', String(summaryAfterSetup.data[0][0]).indexOf('【免責】'), 0);
+check('セットアップ: 実行ログに1行残る', run('readTable_(SHEETS.LOG).rows.length'), 1);
+check('セットアップ: 実行ログの見出しが全部ある', spreadsheet.getSheetByName('実行ログ').data[0], [
+  'executed_at',
+  'kind',
+  'level',
+  'message'
+]);
+check('セットアップ: エラーダイアログは出ない', alerts.length, 0);
+
 run('ensureSheets_()');
 const sheetNames = spreadsheet.getSheets().map((s) => s.getName());
 check('セットアップ: サマリーが先頭タブ', sheetNames[0], 'サマリー');

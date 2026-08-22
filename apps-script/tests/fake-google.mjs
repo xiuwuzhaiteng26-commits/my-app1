@@ -174,6 +174,23 @@ class FakeEvent {
 export function makeSandbox(eventsByDate) {
   const spreadsheet = new FakeSpreadsheet();
   const sentMail = [];
+  const alerts = [];
+  const menu = { items: [] };
+  const ui = {
+    alert: (message) => alerts.push(message),
+    createMenu(name) {
+      menu.name = name;
+      const builder = {
+        addItem(label, fn) {
+          menu.items.push({ label, fn });
+          return builder;
+        },
+        addSeparator: () => builder,
+        addToUi: () => menu
+      };
+      return builder;
+    }
+  };
 
   const formatDate = (date, _tz, format) => {
     const ymd = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -190,7 +207,8 @@ export function makeSandbox(eventsByDate) {
     sandbox: {
       console,
       SpreadsheetApp: {
-        getActiveSpreadsheet: () => spreadsheet
+        getActiveSpreadsheet: () => spreadsheet,
+        getUi: () => ui
       },
       CalendarApp: {
         getDefaultCalendar: () => ({
@@ -217,6 +235,8 @@ export function makeSandbox(eventsByDate) {
       }
     },
     spreadsheet,
-    sentMail
+    sentMail,
+    alerts,
+    menu
   };
 }
