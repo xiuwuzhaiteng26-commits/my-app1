@@ -106,6 +106,9 @@ class FakeSpreadsheet {
     this.sheets = [new FakeSheet('シート1')];
     this.toasts = [];
   }
+  getUrl() {
+    return 'https://docs.google.com/spreadsheets/d/fake/edit';
+  }
   getSheetByName(name) {
     return this.sheets.find((s) => s.getName() === name) || null;
   }

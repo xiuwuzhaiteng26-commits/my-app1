@@ -134,6 +134,9 @@ function runTests() {
   check('真偽変換', [toBool_(true), toBool_('TRUE'), toBool_('')], [true, true, false]);
   check('日付文字列の正規化', toDateString_('2026/8/1'), '2026-08-01');
   check('年月の取り出し', yearMonthOfDateString_('2026-08-01'), '2026-08');
+  check('日付入力: 正しい日付', formatDate_(parseDateInput_('2026-08-20')), '2026-08-20');
+  check('日付入力: 存在しない日付は拒否', parseDateInput_('2026/8/32'), null);
+  check('日付入力: 形式違いは拒否', parseDateInput_('8月20日'), null);
 
   var summary = failed === 0 ? 'セルフテスト: 全' + details.length + '件成功' : 'セルフテスト: ' + failed + '件失敗 / 全' + details.length + '件';
   return { summary: summary, details: details, failed: failed };

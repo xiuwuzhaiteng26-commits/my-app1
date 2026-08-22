@@ -22,7 +22,8 @@ const files = [
   'Summary.js',
   'Notify.js',
   'Reconcile.js',
-  'Main.js'
+  'Main.js',
+  'WebApp.js'
 ];
 
 const details = [];
@@ -189,6 +190,45 @@ check('通知: 本文に壁の残りと免責を含む', [
   sentMail[0].body.includes('【免責】')
 ], [true, true, true]);
 check('通知: 実行ログに記録される', run('readTable_(SHEETS.LOG).rows.length > 0'), true);
+
+/* --- ウェブアプリ（画面） --- */
+const appData = run('buildAppData_()');
+check('アプリ: 壁と労働時間を返す', [appData.walls.length, appData.hours.length], [2, 2]);
+check('アプリ: 直近の勤務は新しい順', appData.recentEntries[0].date, '2026-08-20');
+check('アプリ: 勤務先の上限を返す', appData.limits.length, 2);
+check('アプリ: 答え合わせ用の選択肢を返す', appData.reconcileForm.companies[0], '合計（全勤務先）');
+check('アプリ: スプレッドシートのURLを返す', appData.spreadsheetUrl.indexOf('https://') === 0, true);
+check('アプリ: 免責を返す', appData.disclaimer.indexOf('【免責】') === 0, true);
+
+const limitSaved = run(`appSaveCompanyLimit({ companyName: 'Kakedas', limit: 90, confirmed: true })`);
+const kakedas = limitSaved.data.hours.filter((h) => h.companyName === 'Kakedas')[0];
+check('アプリ: 上限を実数に差し替えられる', [kakedas.limit, kakedas.confirmed], [90, true]);
+check('アプリ: 上限変更が判定に反映される', kakedas.status, '警告');
+
+let thrown = '';
+try {
+  run(`appAddManualIncome({ sourceName: 'X', category: '事業所得', period: '春ごろ', amount: 1000 })`);
+} catch (e) {
+  thrown = e.message;
+}
+check('アプリ: 年の無い期間は登録を拒否', thrown.indexOf('年が読み取れません') >= 0, true);
+
+const added = run(`appAddManualIncome({ sourceName: '業務委託B', category: '雑所得', period: '2026-06', amount: 50000, expenses: 10000 })`);
+check('アプリ: 手入力の収入を追加できる', added.data.annual.miscRevenue, 50000);
+check('アプリ: 追加分が壁の判定に入る', added.data.annual.totalRevenue, 316608 + 50000);
+
+thrown = '';
+try {
+  run(`appImportDate('2026/8/32')`);
+} catch (e) {
+  thrown = e.message;
+}
+check('アプリ: 不正な日付を拒否', thrown.indexOf('yyyy-MM-dd') >= 0, true);
+
+const imported = run(`appImportDate('2026-08-20')`);
+check('アプリ: 日付指定で取り込み直せる', imported.message.indexOf('2026-08-20 を取り込みました') === 0, true);
+
+check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYear'), 2026);
 
 console.log(details.join('\n'));
 const summary = failed === 0 ? `結合テスト: 全${details.length}件成功` : `結合テスト: ${failed}件失敗 / 全${details.length}件`;

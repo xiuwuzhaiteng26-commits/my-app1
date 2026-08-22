@@ -7,6 +7,7 @@ function onOpen() {
     .createMenu('年収の壁ツール')
     .addItem('① 初期セットアップ（シート作成）', 'setupSheets')
     .addItem('② 毎日23:30のトリガーを設定', 'installDailyTrigger')
+    .addItem('③ アプリのURLを表示', 'showWebAppUrl')
     .addSeparator()
     .addItem('今日の分析をいま実行', 'runTodayFromMenu')
     .addItem('期間を指定して取り込み直す', 'backfillFromMenu')
@@ -243,8 +244,13 @@ function promptText_(ui, title, message) {
 function parseDateInput_(text) {
   var m = String(text || '').trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (!m) return null;
-  var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
-  return isNaN(d.getTime()) ? null : d;
+  var year = Number(m[1]);
+  var month = Number(m[2]);
+  var day = Number(m[3]);
+  var d = new Date(year, month - 1, day, 12, 0, 0);
+  // 2026/8/32 のような存在しない日付は翌月に繰り上がるので弾く
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+  return d;
 }
 
 function toast_(message) {

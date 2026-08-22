@@ -13,7 +13,20 @@ import vm from 'node:vm';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
-const files = ['Config.js', 'Util.js', 'Sheets.js', 'Parser.js', 'Calc.js', 'Tests.js'];
+const files = [
+  'Config.js',
+  'Util.js',
+  'Sheets.js',
+  'Parser.js',
+  'Calc.js',
+  'CalendarSource.js',
+  'Summary.js',
+  'Notify.js',
+  'Reconcile.js',
+  'Main.js',
+  'WebApp.js',
+  'Tests.js'
+];
 
 // GAS のグローバルの最小限のスタブ（日付整形のみ使う）
 const sandbox = {
