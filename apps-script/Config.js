@@ -83,7 +83,7 @@ var CONFIG = {
    *   'webhook' … Slack / Discord / 任意のWebhookへPOST
    */
   notify: {
-    channel: 'sheet',
+    channel: 'email',
     /** 空ならスクリプト実行アカウントのメールアドレス宛 */
     emailTo: '',
     /** channel が 'sheet' でも、注意・警告が出た日だけはメールを送りたい場合は true */

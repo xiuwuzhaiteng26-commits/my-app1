@@ -68,7 +68,7 @@ const events = {
   ]
 };
 
-const { sandbox, spreadsheet } = makeSandbox(events);
+const { sandbox, spreadsheet, sentMail } = makeSandbox(events);
 const context = vm.createContext(sandbox);
 for (const file of files) {
   vm.runInContext(readFileSync(join(root, file), 'utf8'), context, { filename: file });
@@ -181,7 +181,13 @@ check('再計算: 行が増えない（手入力行をそのまま更新）', re
 
 /* --- 通知 --- */
 const notified = run('notify_(buildSnapshot_(__target, null))');
-check('通知: 既定はシートのみで外部送信しない', [notified.channel, notified.sent], ['sheet', false]);
+check('通知: 既定は毎日メール', [notified.channel, notified.sent], ['email', true]);
+check('通知: 宛先は実行アカウント', sentMail[0].to, 'test@example.com');
+check('通知: 本文に壁の残りと免責を含む', [
+  sentMail[0].body.includes('123万円'),
+  sentMail[0].body.includes('当月'),
+  sentMail[0].body.includes('【免責】')
+], [true, true, true]);
 check('通知: 実行ログに記録される', run('readTable_(SHEETS.LOG).rows.length > 0'), true);
 
 console.log(details.join('\n'));

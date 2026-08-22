@@ -219,18 +219,25 @@ Google カレンダーに書いたシフトを毎日 23:30 に読み取り、Goo
 
 ## 通知
 
-既定は **`sheet`**（サマリーシートと実行ログの更新のみ。外部への送信はしません）です。
-`Config.js` の `notify` を変えると毎日 23:30 の実行後に通知を送れます。
+既定は **`email`** です。毎日 23:30 の実行後に、その日の勤務内容・壁までの残り・
+当月の労働時間をまとめたメールが、スクリプトを実行している Google アカウントの Gmail に
+届きます（`emailTo` を書けば別のアドレスにも送れます）。
+
+`Config.js` の `notify` で変更できます。
 
 ```js
 notify: {
   channel: 'email',        // 'sheet' | 'email' | 'webhook'
   emailTo: '',             // 空なら実行アカウントのGmail宛
-  alwaysNotifyOnAlert: false, // 'sheet' でも注意・警告の日だけ送るなら true
+  alwaysNotifyOnAlert: false, // 'sheet' でも注意・警告の日だけメールするなら true
   webhookUrl: '',          // Slack / Discord の Incoming Webhook URL
   webhookFormat: 'slack'   // 'slack' | 'discord' | 'json'
 }
 ```
+
+- 毎日のメールが多いと感じたら `channel: 'sheet'` ＋ `alwaysNotifyOnAlert: true` にすると、
+  注意・警告が出た日だけメールが届くようになります。
+- `channel: 'sheet'` にすると外部への送信は一切行いません。
 
 どの設定でも、実行結果は必ずサマリーシートと `実行ログ` シートに残ります。
 
