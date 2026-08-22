@@ -252,14 +252,25 @@ function resolveTargetYear_(today) {
  */
 
 var SHEETS = {
-  CALENDAR: 'calendar_income_entries',
-  MANUAL: 'manual_income_entries',
-  LIMITS: 'company_hour_limits',
-  WALLS: 'wall_thresholds',
-  RECONCILE: 'monthly_reconciliation',
+  CALENDAR: '勤務明細',
+  MANUAL: '手入力の収入',
+  LIMITS: '勤務先の上限',
+  WALLS: '壁の設定',
+  RECONCILE: '月次の答え合わせ',
   SUMMARY: 'サマリー',
   LOG: '実行ログ'
 };
+
+/**
+ * 以前の英語シート名。既存のスプレッドシートを開いたときに日本語名へ付け替える
+ * （中身はそのまま引き継ぐ）。
+ */
+var LEGACY_SHEET_NAMES = {};
+LEGACY_SHEET_NAMES[SHEETS.CALENDAR] = 'calendar_income_entries';
+LEGACY_SHEET_NAMES[SHEETS.MANUAL] = 'manual_income_entries';
+LEGACY_SHEET_NAMES[SHEETS.LIMITS] = 'company_hour_limits';
+LEGACY_SHEET_NAMES[SHEETS.WALLS] = 'wall_thresholds';
+LEGACY_SHEET_NAMES[SHEETS.RECONCILE] = 'monthly_reconciliation';
 
 /** 各シートの列定義（この順にヘッダー行を作る） */
 var SCHEMA = {};
@@ -303,7 +314,44 @@ SCHEMA[SHEETS.RECONCILE] = [
 ];
 SCHEMA[SHEETS.LOG] = ['executed_at', 'kind', 'level', 'message'];
 
-/** 収入区分（manual_income_entries.income_category に入れられる値） */
+/**
+ * シートの1行目に表示する見出し（日本語）。
+ * 列の並びは SCHEMA と同じで、読み書きは位置で行うため、
+ * ここを変えても処理には影響しない（表示だけが変わる）。
+ */
+var HEADER_LABELS = {};
+HEADER_LABELS[SHEETS.CALENDAR] = [
+  'ID',
+  '日付',
+  '勤務先',
+  '開始',
+  '終了',
+  '休憩(h)',
+  '実働(h)',
+  '時給(円)',
+  '推定収入(円)',
+  '照合済み',
+  '元の予定タイトル',
+  '更新日時'
+];
+HEADER_LABELS[SHEETS.MANUAL] = ['ID', '収入元', '区分', '対象期間', '金額(円)', '必要経費(円)', 'メモ', '更新日時'];
+HEADER_LABELS[SHEETS.LIMITS] = ['勤務先', '月間上限(h)', '確定', 'メモ', '更新日時'];
+HEADER_LABELS[SHEETS.WALLS] = ['壁の名前', '金額(円)', '適用年', '最終更新日', '備考'];
+HEADER_LABELS[SHEETS.RECONCILE] = [
+  'ID',
+  '年月',
+  '勤務先',
+  '実際の支給額(円)',
+  'カレンダー推定額(円)',
+  '差分(円)',
+  '差分率',
+  '状態',
+  'メモ',
+  '入力日時'
+];
+HEADER_LABELS[SHEETS.LOG] = ['実行日時', '種別', 'レベル', '内容'];
+
+/** 収入区分（手入力の収入シートの「区分」に入れられる値） */
 var INCOME_CATEGORY = {
   SALARY: '給与所得',
   BUSINESS: '事業所得',
@@ -348,7 +396,8 @@ function getSheet_(name) {
     sheet = ss.insertSheet(name);
     var headers = SCHEMA[name];
     if (headers) {
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+      var labels = HEADER_LABELS[name] || headers;
+      sheet.getRange(1, 1, 1, labels.length).setValues([labels]).setFontWeight('bold');
       sheet.setFrozenRows(1);
       (TEXT_COLUMNS[name] || []).forEach(function (column) {
         var index = headers.indexOf(column);
@@ -363,9 +412,11 @@ function getSheet_(name) {
 /** 全シートを用意し、初期データ（設定値）を流し込む */
 function ensureSheets_() {
   var ss = getSpreadsheet_();
+  migrateLegacySheetNames_();
   Object.keys(SHEETS).forEach(function (key) {
     getSheet_(SHEETS[key]);
   });
+  refreshHeaderLabels_();
   seedWallThresholds_();
   var first = ss.getSheets()[0];
   if (first.getName() === 'シート1' || first.getName() === 'Sheet1') {
@@ -377,7 +428,33 @@ function ensureSheets_() {
   ss.moveActiveSheet(1);
 }
 
-/** wall_thresholds が空なら CONFIG の値で初期化する */
+/** 英語名で作られた既存のシートを日本語名に付け替える（中身はそのまま） */
+function migrateLegacySheetNames_() {
+  var ss = getSpreadsheet_();
+  Object.keys(LEGACY_SHEET_NAMES).forEach(function (current) {
+    if (ss.getSheetByName(current)) return;
+    var legacy = ss.getSheetByName(LEGACY_SHEET_NAMES[current]);
+    if (legacy) legacy.setName(current);
+  });
+}
+
+/** 1行目の見出しを日本語に揃える（英語見出しのまま作られたシートの移行用） */
+function refreshHeaderLabels_() {
+  Object.keys(HEADER_LABELS).forEach(function (name) {
+    var labels = HEADER_LABELS[name];
+    var sheet = getSheet_(name);
+    var current = sheet.getRange(1, 1, 1, labels.length).getValues()[0];
+    var same = true;
+    labels.forEach(function (label, i) {
+      if (String(current[i]) !== label) same = false;
+    });
+    if (!same) {
+      sheet.getRange(1, 1, 1, labels.length).setValues([labels]).setFontWeight('bold');
+    }
+  });
+}
+
+/** 壁の設定が空なら CONFIG の値で初期化する */
 function seedWallThresholds_() {
   var table = readTable_(SHEETS.WALLS);
   if (table.rows.length > 0) return;

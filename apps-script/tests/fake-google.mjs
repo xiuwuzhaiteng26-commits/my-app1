@@ -74,6 +74,10 @@ class FakeSheet {
   getName() {
     return this.name;
   }
+  setName(name) {
+    this.name = name;
+    return this;
+  }
   getMaxRows() {
     return 1000;
   }

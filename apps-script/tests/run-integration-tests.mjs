@@ -100,10 +100,10 @@ check('セットアップ: サマリーに書き込まれる', summaryAfterSetup
 check('セットアップ: 免責が先頭に出る', String(summaryAfterSetup.data[0][0]).indexOf('【免責】'), 0);
 check('セットアップ: 実行ログに1行残る', run('readTable_(SHEETS.LOG).rows.length'), 1);
 check('セットアップ: 実行ログの見出しが全部ある', spreadsheet.getSheetByName('実行ログ').data[0], [
-  'executed_at',
-  'kind',
-  'level',
-  'message'
+  '実行日時',
+  '種別',
+  'レベル',
+  '内容'
 ]);
 check('セットアップ: エラーダイアログは出ない', alerts.length, 0);
 
@@ -112,12 +112,18 @@ const sheetNames = spreadsheet.getSheets().map((s) => s.getName());
 check('セットアップ: サマリーが先頭タブ', sheetNames[0], 'サマリー');
 check('セットアップ: 既定の空シートを削除', sheetNames.indexOf('シート1'), -1);
 check('セットアップ: 全テーブルを作成', [
-  sheetNames.includes('calendar_income_entries'),
-  sheetNames.includes('manual_income_entries'),
-  sheetNames.includes('company_hour_limits'),
-  sheetNames.includes('wall_thresholds'),
-  sheetNames.includes('monthly_reconciliation')
+  sheetNames.includes('勤務明細'),
+  sheetNames.includes('手入力の収入'),
+  sheetNames.includes('勤務先の上限'),
+  sheetNames.includes('壁の設定'),
+  sheetNames.includes('月次の答え合わせ')
 ], [true, true, true, true, true]);
+check('セットアップ: 見出しは日本語', spreadsheet.getSheetByName('勤務明細').data[0].slice(0, 4), [
+  'ID',
+  '日付',
+  '勤務先',
+  '開始'
+]);
 check('セットアップ: 壁の初期値を投入', run('readTable_(SHEETS.WALLS).rows.length'), 2);
 run('ensureSheets_()');
 check('セットアップ: 再実行しても壁が増えない', run('readTable_(SHEETS.WALLS).rows.length'), 2);
@@ -271,6 +277,40 @@ const imported = run(`appImportDate('2026-08-20')`);
 check('アプリ: 日付指定で取り込み直せる', imported.message.indexOf('2026-08-20 を取り込みました') === 0, true);
 
 check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYear'), 2026);
+
+/* --- 英語シート名からの移行 --- */
+{
+  const legacy = makeSandbox({});
+  const legacyContext = vm.createContext(legacy.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), legacyContext, {
+      filename: 'all-in-one.gs'
+    });
+  } else {
+    for (const file of files) {
+      vm.runInContext(readFileSync(join(root, file), 'utf8'), legacyContext, { filename: file });
+    }
+  }
+  // 旧バージョンで作られた状態を再現する（英語のシート名・英語の見出し・データ入り）
+  const old = legacy.spreadsheet.insertSheet('calendar_income_entries');
+  old.data = [
+    ['id', 'date', 'company_name', 'start_time', 'end_time', 'break_hours', 'worked_hours', 'hourly_wage', 'estimated_amount', 'reconciled', 'source_title', 'updated_at'],
+    ['evt-9#2026-08-01', '2026-08-01', 'Kakedas', '09:00', '18:00', 1, 8, 1226, 9808, true, '[Kakedas] …', '']
+  ];
+  legacy.spreadsheet.insertSheet('wall_thresholds').data = [
+    ['name', 'amount', 'applicable_year', 'last_updated', 'note'],
+    ['123万円', 1230000, 2026, '2026-08-22', '所得税・扶養控除に関する壁の目安']
+  ];
+  vm.runInContext('ensureSheets_()', legacyContext);
+
+  const names = legacy.spreadsheet.getSheets().map((x) => x.getName());
+  check('移行: 英語シート名を日本語に付け替える', names.includes('勤務明細') && !names.includes('calendar_income_entries'), true);
+  check('移行: 見出しを日本語に貼り替える', legacy.spreadsheet.getSheetByName('勤務明細').data[0].slice(0, 3), ['ID', '日付', '勤務先']);
+  const kept = vm.runInContext('readTable_(SHEETS.CALENDAR).rows', legacyContext);
+  check('移行: データはそのまま残る', [kept.length, kept[0].company_name, kept[0].estimated_amount], [1, 'Kakedas', 9808]);
+  check('移行: 照合済みフラグも残る', vm.runInContext('toBool_(readTable_(SHEETS.CALENDAR).rows[0].reconciled)', legacyContext), true);
+  check('移行: 壁の設定が二重登録されない', vm.runInContext('readTable_(SHEETS.WALLS).rows.length', legacyContext), 1);
+}
 
 console.log(details.join('\n'));
 const label = useBundle ? '結合テスト(1ファイル版)' : '結合テスト';
