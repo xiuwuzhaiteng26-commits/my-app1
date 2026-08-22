@@ -25,3 +25,7 @@ dist-ssr
 
 # clasp (Apps Script)
 .clasp.json
+
+# 全部入り1ファイル版は貼り付け用に配布するので、dist の除外から戻す
+!apps-script/dist/
+!apps-script/dist/**

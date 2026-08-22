@@ -10,7 +10,7 @@
  */
 
 function doGet() {
-  var template = HtmlService.createTemplateFromFile('App');
+  var template = htmlTemplate_('App');
   var payload;
   try {
     ensureSheets_();

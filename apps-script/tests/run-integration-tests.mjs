@@ -69,12 +69,25 @@ const events = {
   ]
 };
 
+// --bundle を付けると、生成された全部入り1ファイル版に対して同じテストを流す
+const useBundle = process.argv.includes('--bundle');
 const { sandbox, spreadsheet, sentMail } = makeSandbox(events);
 const context = vm.createContext(sandbox);
-for (const file of files) {
-  vm.runInContext(readFileSync(join(root, file), 'utf8'), context, { filename: file });
+if (useBundle) {
+  const bundle = join(root, 'dist', 'all-in-one.gs');
+  vm.runInContext(readFileSync(bundle, 'utf8'), context, { filename: 'all-in-one.gs' });
+} else {
+  for (const file of files) {
+    vm.runInContext(readFileSync(join(root, file), 'utf8'), context, { filename: file });
+  }
 }
 const run = (expr) => vm.runInContext(expr, context);
+
+if (useBundle) {
+  check('1ファイル版: 画面のHTMLを同梱', run('Object.keys(INLINE_HTML).sort()'), ['App', 'Reconcile']);
+  check('1ファイル版: アプリ画面が読める', run("INLINE_HTML['App'].indexOf('<!DOCTYPE html>') === 0"), true);
+  check('1ファイル版: セルフテストも同梱', run('typeof runTests'), 'function');
+}
 
 /* --- 初期セットアップ --- */
 run('ensureSheets_()');
@@ -231,6 +244,7 @@ check('アプリ: 日付指定で取り込み直せる', imported.message.indexO
 check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYear'), 2026);
 
 console.log(details.join('\n'));
-const summary = failed === 0 ? `結合テスト: 全${details.length}件成功` : `結合テスト: ${failed}件失敗 / 全${details.length}件`;
+const label = useBundle ? '結合テスト(1ファイル版)' : '結合テスト';
+const summary = failed === 0 ? `${label}: 全${details.length}件成功` : `${label}: ${failed}件失敗 / 全${details.length}件`;
 console.log('\n' + summary);
 process.exit(failed === 0 ? 0 : 1);

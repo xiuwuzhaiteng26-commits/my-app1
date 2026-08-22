@@ -12,7 +12,7 @@ var RECONCILE_ALL = '合計（全勤務先）';
 
 function openReconcileDialog() {
   ensureSheets_();
-  var html = HtmlService.createHtmlOutputFromFile('Reconcile').setWidth(460).setHeight(560);
+  var html = htmlOutput_('Reconcile').setWidth(460).setHeight(560);
   SpreadsheetApp.getUi().showModalDialog(html, '月次の答え合わせ');
 }
 
