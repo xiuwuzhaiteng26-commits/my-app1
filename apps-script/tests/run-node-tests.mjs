@@ -23,6 +23,7 @@ const files = [
   'Summary.js',
   'Notify.js',
   'Reconcile.js',
+  'SeedData.js',
   'Main.js',
   'WebApp.js',
   'Tests.js'

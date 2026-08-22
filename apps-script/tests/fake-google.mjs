@@ -95,6 +95,9 @@ class FakeSheet {
     this.data[this.getLastRow()] = values.slice();
     return this;
   }
+  deleteRow(row) {
+    return this.deleteRows(row, 1);
+  }
   deleteRows(start, count) {
     this.data.splice(start - 1, count);
     return this;

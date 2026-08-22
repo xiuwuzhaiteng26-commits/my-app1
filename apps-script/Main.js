@@ -13,6 +13,8 @@ function onOpen() {
     .addItem('期間を指定して取り込み直す', 'backfillFromMenu')
     .addItem('サマリーだけ再計算', 'refreshSummaryFromMenu')
     .addSeparator()
+    .addItem('実データを取り込む（初回のみ）', 'importSeedData')
+    .addSeparator()
     .addItem('月次の答え合わせを入力', 'openReconcileDialog')
     .addItem('月次の答え合わせを再計算', 'recalcReconciliationsFromMenu')
     .addItem('手入力の収入を追加', 'addManualIncomeFromMenu')
@@ -103,6 +105,9 @@ function importDateRange_(startDate, endDate) {
     cursor.setDate(cursor.getDate() + 1);
     guard++;
   }
+
+  // 手入力で登録した同じ勤務があれば消す（カレンダーを正とする）
+  removeSeededDuplicates_(all.entries);
 
   upsertRows_(SHEETS.CALENDAR, all.entries, 'id', function (existing, incoming) {
     var merged = {};

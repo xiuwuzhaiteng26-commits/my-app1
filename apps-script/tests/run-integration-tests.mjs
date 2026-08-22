@@ -22,6 +22,7 @@ const files = [
   'Summary.js',
   'Notify.js',
   'Reconcile.js',
+  'SeedData.js',
   'Main.js',
   'WebApp.js'
 ];
@@ -277,6 +278,84 @@ const imported = run(`appImportDate('2026-08-20')`);
 check('アプリ: 日付指定で取り込み直せる', imported.message.indexOf('2026-08-20 を取り込みました') === 0, true);
 
 check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYear'), 2026);
+
+/* --- 一括取り込み（SeedData）の仕組み --- */
+{
+  // 個人情報を公開リポジトリに置かないため、テストは架空のデータで行う
+  const seedEnv = makeSandbox({
+    '2026-08-05': [
+      {
+        id: 'evt-cal@google.com',
+        title: '[会社A] 09:00-18:00 休憩1h 時給1200円',
+        start: new Date(2026, 7, 5, 9, 0),
+        end: new Date(2026, 7, 5, 18, 0)
+      }
+    ]
+  });
+  const seedContext = vm.createContext(seedEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), seedContext, {
+      filename: 'all-in-one.gs'
+    });
+  } else {
+    for (const file of files) {
+      vm.runInContext(readFileSync(join(root, file), 'utf8'), seedContext, { filename: file });
+    }
+  }
+  const seedRun = (expr) => vm.runInContext(expr, seedContext);
+
+  check('一括取り込み: 未入力なら何もしない', seedRun('importSeedData()'), null);
+  check('一括取り込み: 未入力の案内を出す', seedEnv.alerts.length, 1);
+
+  seedRun(`SEED_MANUAL_INCOME = [
+    { source_name: '委託先X', income_category: '事業所得', period: '2026-03〜2026-05', amount: 300000, expenses: 20000, note: 'テスト' },
+    { source_name: '勤務先Y', income_category: '給与所得', period: '2026〜2026-07', amount: 100000, expenses: 0, note: 'テスト' }
+  ]`);
+  seedRun(`SEED_SHIFTS = [
+    ['2026-07-01', '会社A', '09:00', '18:00', 1, 1200],
+    ['2026-07-06', '会社A', '09:00', '12:00', 0, 1200],
+    ['2026-07-24', '会社A', '12:00', '18:00', 0, 1200],
+    ['2026-08-05', '会社A', '09:00', '18:00', 1, 1200],
+    ['2026-08-22', '会社B', '09:00', '17:00', 0, 1500]
+  ]`);
+  seedRun('importSeedData()');
+
+  const rows = seedRun('readTable_(SHEETS.CALENDAR).rows');
+  check('一括取り込み: シフト件数', rows.length, 5);
+  const hours = (c) => rows.filter((r) => r.company_name === c).reduce((sum, r) => sum + Number(r.worked_hours), 0);
+  const amount = (c) => rows.filter((r) => r.company_name === c).reduce((sum, r) => sum + Number(r.estimated_amount), 0);
+  check('一括取り込み: 実働時間（8+3+6+8）', hours('会社A'), 25);
+  check('一括取り込み: 推定収入（25h×1200円）', amount('会社A'), 30000);
+  check('一括取り込み: 休憩なしの8時間勤務', [hours('会社B'), amount('会社B')], [8, 12000]);
+  check('一括取り込み: 勤務先が自動登録される', seedRun('readTable_(SHEETS.LIMITS).rows.length'), 2);
+
+  const annual = seedRun('buildSnapshot_(new Date(2026, 7, 22, 23, 30), null)').annual;
+  check('一括取り込み: 給与収入（手入力＋シフト）', annual.salaryRevenue, 100000 + 42000);
+  check('一括取り込み: 事業収入', annual.businessRevenue, 300000);
+  check('一括取り込み: 年間収入合計', annual.totalRevenue, 442000);
+  check('一括取り込み: 事業所得は経費を引く', annual.businessIncome, 280000);
+  check('一括取り込み: 合計所得金額', annual.totalIncome, 280000);
+  check('一括取り込み: 123万円まで残り', seedRun('buildSnapshot_(new Date(2026, 7, 22, 23, 30), null)').walls[0].remaining, 1230000 - 442000);
+
+  // 二重計上しないこと
+  seedRun('importSeedData()');
+  check('一括取り込み: 再実行しても増えない', seedRun('readTable_(SHEETS.CALENDAR).rows.length'), 5);
+  check('一括取り込み: 手入力も増えない', seedRun('readTable_(SHEETS.MANUAL).rows.length'), 2);
+
+  // 同じ勤務をカレンダーから取り込んでも二重にならない
+  seedRun('__day = new Date(2026, 7, 5, 12, 0)');
+  seedRun('importDateRange_(__day, __day)');
+  const afterImport = seedRun('readTable_(SHEETS.CALENDAR).rows');
+  check('一括取り込み: カレンダー取り込みでも二重にならない', afterImport.length, 5);
+  check(
+    '一括取り込み: カレンダー側の行に置き換わる',
+    afterImport.filter((r) => r.date === '2026-08-05').map((r) => String(r.id)),
+    ['evt-cal@google.com#2026-08-05']
+  );
+  check('一括取り込み: 置き換わっても合計は同じ', afterImport.reduce((sum, r) => sum + Number(r.estimated_amount), 0), 42000);
+  seedRun('importSeedData()');
+  check('一括取り込み: 取り込み済みの勤務は上書きしない', seedRun('readTable_(SHEETS.CALENDAR).rows.length'), 5);
+}
 
 /* --- 英語シート名からの移行 --- */
 {

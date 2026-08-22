@@ -25,6 +25,7 @@ export const SOURCE_FILES = [
   'Notify.js',
   'Html.js',
   'Reconcile.js',
+  'SeedData.js',
   'WebApp.js',
   'Main.js',
   'Tests.js'
