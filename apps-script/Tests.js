@@ -138,6 +138,10 @@ function runTests() {
   check('日付入力: 存在しない日付は拒否', parseDateInput_('2026/8/32'), null);
   check('日付入力: 形式違いは拒否', parseDateInput_('8月20日'), null);
 
+  /* --- ロケール・タイムゾーン --- */
+  check('時刻セル: 文字列はそのまま', toTimeString_('9:00'), '09:00');
+  check('日付セル: 文字列はそのまま', toDateString_('2026/8/1'), '2026-08-01');
+
   var summary = failed === 0 ? 'セルフテスト: 全' + details.length + '件成功' : 'セルフテスト: ' + failed + '件失敗 / 全' + details.length + '件';
   return { summary: summary, details: details, failed: failed };
 }

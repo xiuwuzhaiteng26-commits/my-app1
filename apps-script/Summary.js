@@ -16,7 +16,10 @@ function buildSnapshot_(today, runInfo) {
   var walls = evaluateWalls_(wallRows, annual.totalRevenue, targetYear);
   var hours = aggregateMonthlyHours_(calendarRows, limitRows, yearMonth);
 
-  var messages = [].concat(annual.warnings);
+  var messages = [];
+  var tzWarning = timeZoneWarning_();
+  if (tzWarning) messages.push(tzWarning);
+  messages = messages.concat(annual.warnings);
   if (runInfo) {
     messages = messages.concat(runInfo.errors || []).concat(runInfo.warnings || []);
   }

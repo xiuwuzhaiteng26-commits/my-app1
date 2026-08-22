@@ -193,6 +193,18 @@ const recon = run('readTable_(SHEETS.RECONCILE).rows');
 check('再計算: シート直接入力も判定される', [recon[2].estimated_amount, recon[2].status], [16608, '要確認']);
 check('再計算: 行が増えない（手入力行をそのまま更新）', recon.length, 3);
 
+/* --- タイムゾーン --- */
+check('タイムゾーン: 一致していれば警告なし', run('timeZoneWarning_()'), null);
+run(`Session.getScriptTimeZone = function () { return 'America/Los_Angeles'; }`);
+check('タイムゾーン: ずれていたら警告文を出す', run("timeZoneWarning_().indexOf('America/Los_Angeles') > 0"), true);
+check(
+  'タイムゾーン: 警告がサマリーの注意メッセージに載る',
+  run("buildSnapshot_(__target, null).messages[0].indexOf('スクリプトのタイムゾーンが') === 0"),
+  true
+);
+run(`Session.getScriptTimeZone = function () { return 'Asia/Tokyo'; }`);
+check('タイムゾーン: 直せば警告が消える', run('buildSnapshot_(__target, null).messages.length'), 0);
+
 /* --- 通知 --- */
 const notified = run('notify_(buildSnapshot_(__target, null))');
 check('通知: 既定は毎日メール', [notified.channel, notified.sent], ['email', true]);

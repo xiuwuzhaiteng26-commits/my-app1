@@ -61,6 +61,9 @@ class FakeRange {
   setWrap() {
     return this;
   }
+  setNumberFormat() {
+    return this;
+  }
 }
 
 class FakeSheet {
@@ -70,6 +73,9 @@ class FakeSheet {
   }
   getName() {
     return this.name;
+  }
+  getMaxRows() {
+    return 1000;
   }
   getLastRow() {
     let last = 0;
@@ -108,6 +114,9 @@ class FakeSpreadsheet {
   }
   getUrl() {
     return 'https://docs.google.com/spreadsheets/d/fake/edit';
+  }
+  getSpreadsheetTimeZone() {
+    return 'Asia/Tokyo';
   }
   getSheetByName(name) {
     return this.sheets.find((s) => s.getName() === name) || null;
@@ -193,7 +202,10 @@ export function makeSandbox(eventsByDate) {
         formatDate,
         getUuid: () => `uuid-${++uuid}`
       },
-      Session: { getEffectiveUser: () => ({ getEmail: () => 'test@example.com' }) },
+      Session: {
+        getEffectiveUser: () => ({ getEmail: () => 'test@example.com' }),
+        getScriptTimeZone: () => 'Asia/Tokyo'
+      },
       MailApp: { sendEmail: (to, subject, body) => sentMail.push({ to, subject, body }) },
       UrlFetchApp: { fetch: () => ({}) },
       Logger: { log: () => {} },

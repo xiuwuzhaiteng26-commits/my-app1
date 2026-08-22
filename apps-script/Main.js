@@ -28,12 +28,22 @@ function setupSheets() {
   var snapshot = buildSnapshot_(new Date(), null);
   writeSummarySheet_(snapshot);
   writeLog_('setup', '正常', 'シートを初期化しました');
+  var tzWarning = timeZoneWarning_();
+  if (tzWarning) {
+    showAlert_('設定を確認してください', tzWarning);
+    return;
+  }
   toast_('シートを作成しました。次に「② 毎日23:30のトリガーを設定」を実行してください。');
 }
 
 /** ② 毎日23:30に dailyJob を実行するトリガーを設定 */
 function installDailyTrigger() {
   removeDailyTrigger();
+  var tzWarning = timeZoneWarning_();
+  if (tzWarning) {
+    showAlert_('タイムゾーンを直してから設定してください', tzWarning);
+    return;
+  }
   ScriptApp.newTrigger('dailyJob').timeBased().atHour(23).nearMinute(30).everyDays(1).create();
   writeLog_('trigger', '正常', '毎日23:30のトリガーを設定しました');
   toast_('毎日23:30のトリガーを設定しました（Google側の仕様で実行時刻は±15分ほど前後します）。');
@@ -258,6 +268,14 @@ function toast_(message) {
     getSpreadsheet_().toast(message, '年収の壁ツール', 8);
   } catch (e) {
     Logger.log(message);
+  }
+}
+
+function showAlert_(title, message) {
+  try {
+    SpreadsheetApp.getUi().alert(title + '\n\n' + message);
+  } catch (e) {
+    Logger.log(title + '\n' + message);
   }
 }
 

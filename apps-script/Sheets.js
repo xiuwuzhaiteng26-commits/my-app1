@@ -63,6 +63,18 @@ var INCOME_CATEGORY = {
 };
 
 /**
+ * 日付・時刻として自動変換されると困る列（ロケールによって表示や値が変わるため、
+ * シート作成時に「書式なしテキスト」にしておく）
+ */
+var TEXT_COLUMNS = {};
+TEXT_COLUMNS[SHEETS.CALENDAR] = ['date', 'start_time', 'end_time', 'updated_at'];
+TEXT_COLUMNS[SHEETS.MANUAL] = ['period', 'updated_at'];
+TEXT_COLUMNS[SHEETS.LIMITS] = ['updated_at'];
+TEXT_COLUMNS[SHEETS.WALLS] = ['last_updated'];
+TEXT_COLUMNS[SHEETS.RECONCILE] = ['year_month', 'entered_at'];
+TEXT_COLUMNS[SHEETS.LOG] = ['executed_at'];
+
+/**
  * 操作対象のスプレッドシートを返す。
  * コンテナバインド（スプレッドシートの「拡張機能 > Apps Script」から作成）なら
  * そのスプレッドシート、スタンドアロンならスクリプトプロパティ SPREADSHEET_ID を使う。
@@ -90,6 +102,11 @@ function getSheet_(name) {
     if (headers) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
       sheet.setFrozenRows(1);
+      (TEXT_COLUMNS[name] || []).forEach(function (column) {
+        var index = headers.indexOf(column);
+        if (index < 0) return;
+        sheet.getRange(2, index + 1, sheet.getMaxRows() - 1, 1).setNumberFormat('@');
+      });
     }
   }
   return sheet;

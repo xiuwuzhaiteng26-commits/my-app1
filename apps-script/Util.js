@@ -16,9 +16,26 @@ function formatYearMonth_(date) {
   return Utilities.formatDate(date, CONFIG.timeZone, 'yyyy-MM');
 }
 
+/**
+ * スプレッドシート自身のタイムゾーン。
+ * 日付・時刻のセルは「そのスプレッドシートのタイムゾーンでの値」として保存されるため、
+ * セルを読むときは CONFIG.timeZone ではなくこちらを使う
+ * （ロケールが日本以外のシートで 09:00 が別の時刻にずれるのを防ぐ）。
+ */
+var SHEET_TIME_ZONE_CACHE = null;
+function sheetTimeZone_() {
+  if (SHEET_TIME_ZONE_CACHE) return SHEET_TIME_ZONE_CACHE;
+  try {
+    SHEET_TIME_ZONE_CACHE = getSpreadsheet_().getSpreadsheetTimeZone() || CONFIG.timeZone;
+  } catch (e) {
+    SHEET_TIME_ZONE_CACHE = CONFIG.timeZone;
+  }
+  return SHEET_TIME_ZONE_CACHE;
+}
+
 /** セルの値を 'yyyy-MM-dd' 文字列へ正規化（Dateセル・文字列セルの両方に対応） */
 function toDateString_(value) {
-  if (value instanceof Date) return formatDate_(value);
+  if (value instanceof Date) return Utilities.formatDate(value, sheetTimeZone_(), 'yyyy-MM-dd');
   var s = String(value == null ? '' : value).trim();
   var m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
   if (!m) return s;
@@ -27,7 +44,7 @@ function toDateString_(value) {
 
 /** セルの値を 'HH:mm' 文字列へ正規化 */
 function toTimeString_(value) {
-  if (value instanceof Date) return formatTime_(value);
+  if (value instanceof Date) return Utilities.formatDate(value, sheetTimeZone_(), 'HH:mm');
   var s = String(value == null ? '' : value).trim();
   var m = s.match(/^(\d{1,2}):(\d{2})/);
   if (!m) return s;
@@ -84,6 +101,27 @@ function yearMonthOfDateString_(dateStr) {
 /** 金額表示（例: 1,230,000円） */
 function yen_(n) {
   return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円';
+}
+
+/**
+ * スクリプトのタイムゾーンが想定と違うときの警告文（問題なければ null）。
+ * ここがずれていると毎日23:30のトリガーが日本時間の別の時刻に動いてしまう。
+ */
+function timeZoneWarning_() {
+  var scriptTz;
+  try {
+    scriptTz = Session.getScriptTimeZone();
+  } catch (e) {
+    return null;
+  }
+  if (!scriptTz || scriptTz === CONFIG.timeZone) return null;
+  return (
+    'スクリプトのタイムゾーンが ' +
+    scriptTz +
+    ' になっています。このままだと毎日23:30の自動実行が日本時間の別の時刻に動きます。' +
+    'Apps Script の「プロジェクトの設定（Project Settings）→ タイムゾーン（Time zone）」を ' +
+    '(GMT+09:00) 東京 / Tokyo に変更してください。'
+  );
 }
 
 /** 集計対象年 */

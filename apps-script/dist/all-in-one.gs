@@ -130,9 +130,26 @@ function formatYearMonth_(date) {
   return Utilities.formatDate(date, CONFIG.timeZone, 'yyyy-MM');
 }
 
+/**
+ * スプレッドシート自身のタイムゾーン。
+ * 日付・時刻のセルは「そのスプレッドシートのタイムゾーンでの値」として保存されるため、
+ * セルを読むときは CONFIG.timeZone ではなくこちらを使う
+ * （ロケールが日本以外のシートで 09:00 が別の時刻にずれるのを防ぐ）。
+ */
+var SHEET_TIME_ZONE_CACHE = null;
+function sheetTimeZone_() {
+  if (SHEET_TIME_ZONE_CACHE) return SHEET_TIME_ZONE_CACHE;
+  try {
+    SHEET_TIME_ZONE_CACHE = getSpreadsheet_().getSpreadsheetTimeZone() || CONFIG.timeZone;
+  } catch (e) {
+    SHEET_TIME_ZONE_CACHE = CONFIG.timeZone;
+  }
+  return SHEET_TIME_ZONE_CACHE;
+}
+
 /** セルの値を 'yyyy-MM-dd' 文字列へ正規化（Dateセル・文字列セルの両方に対応） */
 function toDateString_(value) {
-  if (value instanceof Date) return formatDate_(value);
+  if (value instanceof Date) return Utilities.formatDate(value, sheetTimeZone_(), 'yyyy-MM-dd');
   var s = String(value == null ? '' : value).trim();
   var m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
   if (!m) return s;
@@ -141,7 +158,7 @@ function toDateString_(value) {
 
 /** セルの値を 'HH:mm' 文字列へ正規化 */
 function toTimeString_(value) {
-  if (value instanceof Date) return formatTime_(value);
+  if (value instanceof Date) return Utilities.formatDate(value, sheetTimeZone_(), 'HH:mm');
   var s = String(value == null ? '' : value).trim();
   var m = s.match(/^(\d{1,2}):(\d{2})/);
   if (!m) return s;
@@ -198,6 +215,27 @@ function yearMonthOfDateString_(dateStr) {
 /** 金額表示（例: 1,230,000円） */
 function yen_(n) {
   return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円';
+}
+
+/**
+ * スクリプトのタイムゾーンが想定と違うときの警告文（問題なければ null）。
+ * ここがずれていると毎日23:30のトリガーが日本時間の別の時刻に動いてしまう。
+ */
+function timeZoneWarning_() {
+  var scriptTz;
+  try {
+    scriptTz = Session.getScriptTimeZone();
+  } catch (e) {
+    return null;
+  }
+  if (!scriptTz || scriptTz === CONFIG.timeZone) return null;
+  return (
+    'スクリプトのタイムゾーンが ' +
+    scriptTz +
+    ' になっています。このままだと毎日23:30の自動実行が日本時間の別の時刻に動きます。' +
+    'Apps Script の「プロジェクトの設定（Project Settings）→ タイムゾーン（Time zone）」を ' +
+    '(GMT+09:00) 東京 / Tokyo に変更してください。'
+  );
 }
 
 /** 集計対象年 */
@@ -273,6 +311,18 @@ var INCOME_CATEGORY = {
 };
 
 /**
+ * 日付・時刻として自動変換されると困る列（ロケールによって表示や値が変わるため、
+ * シート作成時に「書式なしテキスト」にしておく）
+ */
+var TEXT_COLUMNS = {};
+TEXT_COLUMNS[SHEETS.CALENDAR] = ['date', 'start_time', 'end_time', 'updated_at'];
+TEXT_COLUMNS[SHEETS.MANUAL] = ['period', 'updated_at'];
+TEXT_COLUMNS[SHEETS.LIMITS] = ['updated_at'];
+TEXT_COLUMNS[SHEETS.WALLS] = ['last_updated'];
+TEXT_COLUMNS[SHEETS.RECONCILE] = ['year_month', 'entered_at'];
+TEXT_COLUMNS[SHEETS.LOG] = ['executed_at'];
+
+/**
  * 操作対象のスプレッドシートを返す。
  * コンテナバインド（スプレッドシートの「拡張機能 > Apps Script」から作成）なら
  * そのスプレッドシート、スタンドアロンならスクリプトプロパティ SPREADSHEET_ID を使う。
@@ -300,6 +350,11 @@ function getSheet_(name) {
     if (headers) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
       sheet.setFrozenRows(1);
+      (TEXT_COLUMNS[name] || []).forEach(function (column) {
+        var index = headers.indexOf(column);
+        if (index < 0) return;
+        sheet.getRange(2, index + 1, sheet.getMaxRows() - 1, 1).setNumberFormat('@');
+      });
     }
   }
   return sheet;
@@ -864,7 +919,10 @@ function buildSnapshot_(today, runInfo) {
   var walls = evaluateWalls_(wallRows, annual.totalRevenue, targetYear);
   var hours = aggregateMonthlyHours_(calendarRows, limitRows, yearMonth);
 
-  var messages = [].concat(annual.warnings);
+  var messages = [];
+  var tzWarning = timeZoneWarning_();
+  if (tzWarning) messages.push(tzWarning);
+  messages = messages.concat(annual.warnings);
   if (runInfo) {
     messages = messages.concat(runInfo.errors || []).concat(runInfo.warnings || []);
   }
@@ -1645,12 +1703,22 @@ function setupSheets() {
   var snapshot = buildSnapshot_(new Date(), null);
   writeSummarySheet_(snapshot);
   writeLog_('setup', '正常', 'シートを初期化しました');
+  var tzWarning = timeZoneWarning_();
+  if (tzWarning) {
+    showAlert_('設定を確認してください', tzWarning);
+    return;
+  }
   toast_('シートを作成しました。次に「② 毎日23:30のトリガーを設定」を実行してください。');
 }
 
 /** ② 毎日23:30に dailyJob を実行するトリガーを設定 */
 function installDailyTrigger() {
   removeDailyTrigger();
+  var tzWarning = timeZoneWarning_();
+  if (tzWarning) {
+    showAlert_('タイムゾーンを直してから設定してください', tzWarning);
+    return;
+  }
   ScriptApp.newTrigger('dailyJob').timeBased().atHour(23).nearMinute(30).everyDays(1).create();
   writeLog_('trigger', '正常', '毎日23:30のトリガーを設定しました');
   toast_('毎日23:30のトリガーを設定しました（Google側の仕様で実行時刻は±15分ほど前後します）。');
@@ -1878,6 +1946,14 @@ function toast_(message) {
   }
 }
 
+function showAlert_(title, message) {
+  try {
+    SpreadsheetApp.getUi().alert(title + '\n\n' + message);
+  } catch (e) {
+    Logger.log(title + '\n' + message);
+  }
+}
+
 function showSummaryAlert_(title, snapshot) {
   try {
     SpreadsheetApp.getUi().alert(title + '\n\n' + buildNotificationText_(snapshot));
@@ -2027,6 +2103,10 @@ function runTests() {
   check('日付入力: 正しい日付', formatDate_(parseDateInput_('2026-08-20')), '2026-08-20');
   check('日付入力: 存在しない日付は拒否', parseDateInput_('2026/8/32'), null);
   check('日付入力: 形式違いは拒否', parseDateInput_('8月20日'), null);
+
+  /* --- ロケール・タイムゾーン --- */
+  check('時刻セル: 文字列はそのまま', toTimeString_('9:00'), '09:00');
+  check('日付セル: 文字列はそのまま', toDateString_('2026/8/1'), '2026-08-01');
 
   var summary = failed === 0 ? 'セルフテスト: 全' + details.length + '件成功' : 'セルフテスト: ' + failed + '件失敗 / 全' + details.length + '件';
   return { summary: summary, details: details, failed: failed };
