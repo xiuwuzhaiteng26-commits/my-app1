@@ -33,6 +33,16 @@ var CONFIG = {
   /** 集計対象年。0 なら実行日の年を使う */
   targetYear: 0,
 
+  /** 毎日の実行 */
+  daily: {
+    /**
+     * 当日だけでなく、過去何日分を毎晩見直すか。
+     * 予定を後から書き足したり直したりしても拾えるようにするための保険。
+     * 取り込みは上書きなので、何度見直しても二重計上にはならない。
+     */
+    lookbackDays: 7
+  },
+
   /** 労働時間の警告（4分の3基準の暫定運用） */
   hours: {
     /** 会社ごとの月間実働時間の暫定上限。正社員の所定労働時間の回答が来たら会社ごとに差し替える */
@@ -1985,19 +1995,28 @@ function removeDailyTrigger() {
 /** 毎日23:30にトリガーから呼ばれる本体 */
 function dailyJob() {
   try {
-    runAnalysisForDate_(new Date());
+    // 当日だけでなく直近数日分を見直す（予定を後から書き足しても拾えるように）
+    var today = new Date();
+    var from = new Date(today.getTime());
+    from.setDate(from.getDate() - (CONFIG.daily.lookbackDays - 1));
+    runAnalysisForRange_(from, today);
   } catch (e) {
     writeLog_('daily', '警告', 'エラー: ' + e.message);
     throw e;
   }
 }
 
-/**
- * 指定日の予定を取り込み、シートと集計を更新する
- */
+/** 指定日の予定を取り込み、シートと集計を更新する */
 function runAnalysisForDate_(date) {
+  return runAnalysisForRange_(date, date);
+}
+
+/**
+ * 指定期間の予定を取り込み、シートと集計を更新する
+ */
+function runAnalysisForRange_(startDate, endDate) {
   ensureSheets_();
-  var run = importDateRange_(date, date);
+  var run = importDateRange_(startDate, endDate);
   // シートに直接入力された答え合わせもここで拾う（スマホから入力しただけで済むように）
   recalcReconciliations_();
   var snapshot = buildSnapshot_(new Date(), run);

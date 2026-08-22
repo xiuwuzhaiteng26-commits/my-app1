@@ -279,6 +279,29 @@ check('アプリ: 日付指定で取り込み直せる', imported.message.indexO
 
 check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYear'), 2026);
 
+/* --- 毎日の実行は直近数日を見直す --- */
+check('毎日の実行: 過去7日分を見直す設定', run('CONFIG.daily.lookbackDays'), 7);
+{
+  // 8/20 に予定を足してから 8/22 の夜間実行を回すと、後から書いた予定も拾える
+  events['2026-08-20'] = [
+    {
+      id: 'evt-late@google.com',
+      title: '[バイトレ] 10:00-15:00 休憩なし 時給1700円',
+      start: new Date(2026, 7, 20, 10, 0),
+      end: new Date(2026, 7, 20, 15, 0)
+    }
+  ];
+  const before = run('readTable_(SHEETS.CALENDAR).rows.length');
+  run('dailyJob()');
+  const after = run('readTable_(SHEETS.CALENDAR).rows');
+  check('毎日の実行: 後から書き足した過去の予定を拾う', after.length, before + 1);
+  const late = after.filter((r) => String(r.id).indexOf('evt-late') === 0)[0];
+  check('毎日の実行: 拾った内容', [late.date, late.company_name, late.worked_hours, late.estimated_amount], ['2026-08-20', 'バイトレ', 5, 8500]);
+  run('dailyJob()');
+  check('毎日の実行: 繰り返しても二重計上しない', run('readTable_(SHEETS.CALENDAR).rows.length'), before + 1);
+  delete events['2026-08-20'];
+}
+
 /* --- 一括取り込み（SeedData）の仕組み --- */
 {
   // 個人情報を公開リポジトリに置かないため、テストは架空のデータで行う

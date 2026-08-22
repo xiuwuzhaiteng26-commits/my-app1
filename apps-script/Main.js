@@ -60,19 +60,28 @@ function removeDailyTrigger() {
 /** 毎日23:30にトリガーから呼ばれる本体 */
 function dailyJob() {
   try {
-    runAnalysisForDate_(new Date());
+    // 当日だけでなく直近数日分を見直す（予定を後から書き足しても拾えるように）
+    var today = new Date();
+    var from = new Date(today.getTime());
+    from.setDate(from.getDate() - (CONFIG.daily.lookbackDays - 1));
+    runAnalysisForRange_(from, today);
   } catch (e) {
     writeLog_('daily', '警告', 'エラー: ' + e.message);
     throw e;
   }
 }
 
-/**
- * 指定日の予定を取り込み、シートと集計を更新する
- */
+/** 指定日の予定を取り込み、シートと集計を更新する */
 function runAnalysisForDate_(date) {
+  return runAnalysisForRange_(date, date);
+}
+
+/**
+ * 指定期間の予定を取り込み、シートと集計を更新する
+ */
+function runAnalysisForRange_(startDate, endDate) {
   ensureSheets_();
-  var run = importDateRange_(date, date);
+  var run = importDateRange_(startDate, endDate);
   // シートに直接入力された答え合わせもここで拾う（スマホから入力しただけで済むように）
   recalcReconciliations_();
   var snapshot = buildSnapshot_(new Date(), run);
