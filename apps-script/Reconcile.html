@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top" />
+    <style>
+      body {
+        font-family: -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+        font-size: 14px;
+        color: #222;
+        margin: 16px;
+      }
+      h2 { font-size: 16px; margin: 0 0 12px; }
+      label { display: block; margin: 12px 0 4px; font-weight: bold; }
+      select, input, textarea {
+        width: 100%; box-sizing: border-box; padding: 6px 8px;
+        border: 1px solid #ccc; border-radius: 4px; font-size: 14px;
+      }
+      .estimate { background: #eceff1; padding: 10px; border-radius: 4px; margin-top: 12px; }
+      .estimate strong { font-size: 18px; }
+      button {
+        margin-top: 16px; padding: 8px 16px; font-size: 14px; border: 0; border-radius: 4px;
+        background: #1a73e8; color: #fff; cursor: pointer;
+      }
+      button:disabled { background: #9e9e9e; cursor: default; }
+      #result { margin-top: 14px; padding: 10px; border-radius: 4px; display: none; white-space: pre-wrap; }
+      .ok { background: #e8f5e9; color: #1b5e20; }
+      .ng { background: #fff3e0; color: #bf360c; }
+      .disclaimer { margin-top: 18px; font-size: 11px; color: #666; border-top: 1px solid #ddd; padding-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <h2>月次の答え合わせ</h2>
+    <p style="margin:0;color:#555">給与明細・支給照会の合計額（額面）を入力してください。</p>
+
+    <label for="month">対象月</label>
+    <select id="month"></select>
+
+    <label for="company">勤務先</label>
+    <select id="company"></select>
+
+    <div class="estimate">
+      カレンダーからの推定額（額面）<br />
+      <strong id="estimate">-</strong>
+    </div>
+
+    <label for="actual">実際の支給額（額面・円）</label>
+    <input id="actual" type="number" inputmode="numeric" step="1" placeholder="例: 98000" />
+
+    <label for="note">メモ（任意）</label>
+    <textarea id="note" rows="2" placeholder="交通費込み など"></textarea>
+
+    <button id="save" disabled>保存して差分を確認</button>
+    <div id="result"></div>
+    <div class="disclaimer" id="disclaimer"></div>
+
+    <script>
+      var DATA = null;
+
+      function yen(n) {
+        return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円';
+      }
+
+      function fillSelect(el, values) {
+        el.innerHTML = '';
+        values.forEach(function (v) {
+          var opt = document.createElement('option');
+          opt.value = v;
+          opt.textContent = v;
+          el.appendChild(opt);
+        });
+      }
+
+      function updateEstimate() {
+        if (!DATA) return;
+        var key = document.getElementById('month').value + '\t' + document.getElementById('company').value;
+        var value = DATA.estimates[key];
+        document.getElementById('estimate').textContent = value === undefined ? '-' : yen(value);
+      }
+
+      function onData(data) {
+        DATA = data;
+        fillSelect(document.getElementById('month'), data.months);
+        fillSelect(document.getElementById('company'), data.companies);
+        document.getElementById('disclaimer').textContent = data.disclaimer;
+        document.getElementById('save').disabled = false;
+        updateEstimate();
+      }
+
+      function onSaved(res) {
+        var el = document.getElementById('result');
+        el.style.display = 'block';
+        el.className = res.status === 'OK' ? 'ok' : 'ng';
+        el.textContent =
+          '推定額 ' + yen(res.estimated) + '\n実額 ' + yen(res.actual) + '\n差分 ' + yen(res.diff) + '\n\n' + res.message;
+        document.getElementById('save').disabled = false;
+        updateEstimate();
+      }
+
+      function onError(err) {
+        var el = document.getElementById('result');
+        el.style.display = 'block';
+        el.className = 'ng';
+        el.textContent = 'エラー: ' + err.message;
+        document.getElementById('save').disabled = false;
+      }
+
+      document.getElementById('month').addEventListener('change', updateEstimate);
+      document.getElementById('company').addEventListener('change', updateEstimate);
+      document.getElementById('save').addEventListener('click', function () {
+        var actual = document.getElementById('actual').value;
+        if (actual === '') {
+          onError({ message: '実際の支給額を入力してください' });
+          return;
+        }
+        document.getElementById('save').disabled = true;
+        google.script.run
+          .withSuccessHandler(onSaved)
+          .withFailureHandler(onError)
+          .saveReconciliation({
+            yearMonth: document.getElementById('month').value,
+            companyName: document.getElementById('company').value,
+            actualAmount: actual,
+            note: document.getElementById('note').value
+          });
+      });
+
+      google.script.run.withSuccessHandler(onData).withFailureHandler(onError).getReconcileFormData();
+    </script>
+  </body>
+</html>
