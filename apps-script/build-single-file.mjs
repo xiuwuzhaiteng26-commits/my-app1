@@ -21,6 +21,7 @@ export const SOURCE_FILES = [
   'Parser.js',
   'Calc.js',
   'CalendarSource.js',
+  'Forecast.js',
   'Summary.js',
   'Notify.js',
   'Html.js',

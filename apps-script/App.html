@@ -139,6 +139,10 @@
         display: none; align-items: center; justify-content: center;
       }
       #busy div { background: var(--card); padding: 14px 22px; border-radius: 12px; font-size: 14px; }
+      .advice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+      .advice:first-child { border-top: 0; }
+      .advice .badge { flex: 0 0 auto; }
+      .s-情報 { color: var(--muted); background: var(--line); }
       .disclaimer {
         font-size: 11px; color: var(--muted); line-height: 1.6;
         border-top: 1px solid var(--line); padding: 12px 4px 20px; margin-top: 6px;
@@ -154,6 +158,7 @@
     <main>
       <section class="view active" id="view-home"></section>
       <section class="view" id="view-income"></section>
+      <section class="view" id="view-forecast"></section>
       <section class="view" id="view-reconcile"></section>
       <section class="view" id="view-settings"></section>
       <div class="disclaimer" id="disclaimer"></div>
@@ -162,6 +167,7 @@
     <nav>
       <button data-view="home" class="active"><span class="ico">🏠</span>ホーム</button>
       <button data-view="income"><span class="ico">💴</span>収入</button>
+      <button data-view="forecast"><span class="ico">📅</span>見込み</button>
       <button data-view="reconcile"><span class="ico">✅</span>照合</button>
       <button data-view="settings"><span class="ico">⚙️</span>設定</button>
     </nav>
@@ -355,6 +361,79 @@
         });
       }
 
+      /* ---------- 見込み ---------- */
+      function renderForecast() {
+        var f = DATA.forecast || {};
+        var html = '';
+
+        if (!f.available) {
+          el('view-forecast').innerHTML = card('この先の見込み', '<div class="empty">' + esc(f.reason || 'まだ取得できていません') + '</div>');
+          return;
+        }
+
+        html += card(
+          'この先' + f.days + '日の予定（' + esc(f.from) + ' 〜 ' + esc(f.to) + '）',
+          '<div class="big">' + f.plannedCount + '件 / ' + f.plannedHours + '時間</div>' +
+            '<div class="sub">予定分の収入 ' + yen(f.plannedRevenue) + '</div>'
+        );
+
+        var adviceHtml = '';
+        if (!f.advice.length) {
+          adviceHtml = '<div class="empty">特にありません</div>';
+        } else {
+          f.advice.forEach(function (a) {
+            adviceHtml +=
+              '<div class="advice a-' + esc(a.level) + '"><span class="badge s-' + esc(a.level) + '">' + esc(a.level) +
+              '</span><div>' + esc(a.text) + '</div></div>';
+          });
+        }
+        html += card('勤務調整のアドバイス', adviceHtml);
+
+        var monthsHtml = '';
+        if (!f.months.length) {
+          monthsHtml = '<div class="empty">この先の勤務予定はありません</div>';
+        } else {
+          f.months.forEach(function (m) {
+            monthsHtml +=
+              '<div style="margin-bottom:14px">' +
+              '<div class="row"><h3>' + esc(m.companyName) + '<span class="sub">　' + esc(m.yearMonth) + '</span></h3>' +
+              '<span class="badge s-' + esc(m.status) + '">' + esc(m.status) + '</span></div>' +
+              bar(m.ratio, m.status) +
+              '<div class="row"><span class="sub">実績 ' + m.actualHours + 'h ＋ 予定 ' + m.plannedHours + 'h ＝ ' +
+              '<b>' + m.projectedHours + 'h</b> / ' + m.limit + 'h</span>' +
+              '<span class="sub">' + (m.overHours > 0 ? m.overHours + 'h 超過' : '余裕 ' + m.remainingHours + 'h') + '</span></div>' +
+              '</div>';
+          });
+        }
+        html += card('月間労働時間の見込み', monthsHtml);
+
+        var wallHtml = '';
+        f.walls.forEach(function (w) {
+          wallHtml +=
+            '<div style="margin-bottom:14px">' +
+            '<div class="row"><h3>' + esc(w.name) + '</h3><span class="badge s-' + esc(w.status) + '">' + esc(w.status) + '</span></div>' +
+            bar(w.ratio, w.status) +
+            '<div class="row"><span class="sub">予定を全部こなすと ' + yen(w.projectedRevenue) + '</span>' +
+            '<span class="sub">' + (w.remaining < 0 ? yen(-w.remaining) + ' 超過' : '残り ' + yen(w.remaining)) + '</span></div>' +
+            '</div>';
+        });
+        html += card('予定を全部こなした場合の壁', wallHtml);
+
+        if (f.pace && f.pace.available) {
+          html += card(
+            '年末の着地（目安・カレンダー分のみ）',
+            row('直近' + f.pace.months + 'ヶ月の平均', yen(f.pace.monthlyAverage) + ' / 月') +
+              row('年末までの残り', f.pace.remainingMonths + 'ヶ月') +
+              row('年末見込み', yen(f.pace.yearEndEstimate), true) +
+              (f.pace.reach
+                ? '<div class="sub" style="margin-top:8px">このペースだと ' + esc(f.pace.reach.wallName) + ' の壁に ' + esc(f.pace.reach.yearMonth) + ' ごろ到達します。</div>'
+                : '')
+          );
+        }
+
+        el('view-forecast').innerHTML = html;
+      }
+
       /* ---------- 照合 ---------- */
       function renderReconcile() {
         var form = DATA.reconcileForm;
@@ -486,6 +565,7 @@
         el('disclaimer').textContent = DATA.disclaimer;
         renderHome();
         renderIncome();
+        renderForecast();
         renderReconcile();
         renderSettings();
       }

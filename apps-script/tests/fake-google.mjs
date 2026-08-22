@@ -267,7 +267,13 @@ export function makeSandbox(eventsByDate) {
       },
       CalendarApp: {
         getDefaultCalendar: () => ({
-          getEventsForDay: (date) => (eventsByDate[formatDate(date, null, 'yyyy-MM-dd')] || []).map((e) => new FakeEvent(e))
+          getEventsForDay: (date) => (eventsByDate[formatDate(date, null, 'yyyy-MM-dd')] || []).map((e) => new FakeEvent(e)),
+          getEvents: (start, end) =>
+            Object.keys(eventsByDate)
+              .sort()
+              .reduce((all, key) => all.concat(eventsByDate[key]), [])
+              .filter((e) => e.start >= start && e.start < end)
+              .map((e) => new FakeEvent(e))
         }),
         getCalendarById: () => null
       },

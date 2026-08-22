@@ -129,3 +129,20 @@ function resolveTargetYear_(today) {
   if (CONFIG.targetYear) return CONFIG.targetYear;
   return Number(formatDate_(today).slice(0, 4));
 }
+
+/** 'yyyy-MM-dd' を '8/28(金)' の形にする */
+function formatShortDate_(dateStr) {
+  var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(dateStr);
+  var date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  var week = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
+  return Number(m[2]) + '/' + Number(m[3]) + '(' + week + ')';
+}
+
+/** 'yyyy-MM' の月を n ヶ月進める */
+function addMonths_(yearMonth, n) {
+  var m = String(yearMonth).match(/^(\d{4})-(\d{2})$/);
+  if (!m) return yearMonth;
+  var total = Number(m[1]) * 12 + (Number(m[2]) - 1) + n;
+  return Math.floor(total / 12) + '-' + pad2_((total % 12) + 1);
+}

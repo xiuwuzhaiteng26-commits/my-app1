@@ -15,6 +15,7 @@ function buildSnapshot_(today, runInfo) {
   var annual = aggregateAnnual_(calendarRows, manualRows, targetYear);
   var walls = evaluateWalls_(wallRows, annual.totalRevenue, targetYear);
   var hours = aggregateMonthlyHours_(calendarRows, limitRows, yearMonth);
+  var forecast = buildForecast_(calendarRows, limitRows, walls, annual, today);
 
   var messages = [];
   var tzWarning = timeZoneWarning_();
@@ -34,6 +35,13 @@ function buildSnapshot_(today, runInfo) {
   });
   if (openReconcile.length > 0 && level === '正常') level = '注意';
 
+  // 見込みの段階で超える場合も、調整できるうちに知らせたいので反映する
+  (forecast.advice || []).forEach(function (a) {
+    if (a.level === '警告') level = '警告';
+    else if (a.level === '注意' && level === '正常') level = '注意';
+  });
+  if (forecast.errors) messages = messages.concat(forecast.errors);
+
   return {
     generatedAt: formatDateTime_(today),
     targetYear: targetYear,
@@ -42,6 +50,7 @@ function buildSnapshot_(today, runInfo) {
     walls: walls,
     hours: hours,
     reconcileRows: reconcileRows,
+    forecast: forecast,
     messages: messages,
     level: level,
     runInfo: runInfo || null
@@ -158,6 +167,40 @@ function writeSummarySheet_(snapshot) {
     );
   });
 
+  var forecast = snapshot.forecast || { available: false, advice: [] };
+  if (forecast.available) {
+    section(
+      'この先の見込み（' + forecast.from + '〜' + forecast.to + ' のカレンダー予定 ' + forecast.plannedCount + '件 / ' +
+        forecast.plannedHours + '時間 / ' + yen_(forecast.plannedRevenue) + '）'
+    );
+    tableHeader(['勤務先', '対象月', '実績(h)', '予定(h)', '見込み(h)', '状態']);
+    if (forecast.months.length === 0) {
+      push(['(この先の勤務予定はありません)']);
+    }
+    forecast.months.forEach(function (m) {
+      statusRow(
+        [m.companyName, m.yearMonth, m.actualHours, m.plannedHours, m.projectedHours + ' / ' + m.limit, m.status],
+        6
+      );
+    });
+
+    tableHeader(['壁', '金額', '予定を全部こなした場合', '残り', '進捗', '状態']);
+    forecast.walls.forEach(function (w) {
+      statusRow(
+        [w.name, yen_(w.amount), yen_(w.projectedRevenue), yen_(w.remaining), Math.round(w.ratio * 100) + '%', w.status],
+        6
+      );
+    });
+
+    section('勤務調整のアドバイス');
+    if (forecast.advice.length === 0) {
+      push(['特にありません']);
+    }
+    forecast.advice.forEach(function (a) {
+      statusRow([a.text, '', '', '', '', a.level], 6);
+    });
+  }
+
   section('月次の答え合わせ（給与明細との差分）');
   tableHeader(['年月', '勤務先', 'カレンダー推定額', '実際の支給額', '差分', '状態']);
   var recent = snapshot.reconcileRows.slice(-12);
@@ -258,6 +301,25 @@ function buildNotificationText_(snapshot) {
         (h.confirmed ? '' : ' ※上限は暫定値')
     );
   });
+  var forecast = snapshot.forecast;
+  if (forecast && forecast.available) {
+    lines.push('');
+    lines.push('【この先' + forecast.days + '日の見込み】予定 ' + forecast.plannedCount + '件 / ' + forecast.plannedHours + '時間 / ' + yen_(forecast.plannedRevenue));
+    forecast.months.forEach(function (m) {
+      lines.push(
+        '  ・' + m.yearMonth + ' ' + m.companyName + ' : 実績' + m.actualHours + 'h + 予定' + m.plannedHours + 'h = ' +
+          m.projectedHours + 'h / ' + m.limit + 'h ' + m.status
+      );
+    });
+    if (forecast.advice.length > 0) {
+      lines.push('');
+      lines.push('【勤務調整のアドバイス】');
+      forecast.advice.forEach(function (a) {
+        lines.push('  ・[' + a.level + '] ' + a.text);
+      });
+    }
+  }
+
   if (snapshot.messages.length > 0) {
     lines.push('');
     lines.push('【注意メッセージ】');

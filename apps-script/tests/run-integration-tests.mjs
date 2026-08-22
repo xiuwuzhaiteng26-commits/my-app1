@@ -19,6 +19,7 @@ const files = [
   'Parser.js',
   'Calc.js',
   'CalendarSource.js',
+  'Forecast.js',
   'Summary.js',
   'Notify.js',
   'Html.js',
@@ -181,7 +182,8 @@ check('サマリー: 免責を先頭に表示', summaryText.split('\n')[0].index
 check('サマリー: 壁の残りを表示', summaryText.includes('123万円') && summaryText.includes('913,392円'), true);
 check('サマリー: 合計所得金額を表示', summaryText.includes('合計所得金額'), true);
 check('サマリー: 労働時間を表示', summaryText.includes('Kakedas（上限は暫定値）'), true);
-check('サマリー: 解析エラーは出さない（runInfo無し）', summaryText.includes('時給の記載'), false);
+// 先読みが有効になったので、これからの予定の書式エラーは runInfo が無くても出る
+check('サマリー: 先の予定の書式エラーも知らせる', summaryText.includes('時給の記載が見つかりません'), true);
 
 run('writeSummarySheet_(buildSnapshot_(__target, __run))', (context.__run = runInfo));
 const summaryText2 = spreadsheet
@@ -228,7 +230,11 @@ check(
   true
 );
 run(`Session.getScriptTimeZone = function () { return 'Asia/Tokyo'; }`);
-check('タイムゾーン: 直せば警告が消える', run('buildSnapshot_(__target, null).messages.length'), 0);
+check(
+  'タイムゾーン: 直せば警告が消える',
+  run("buildSnapshot_(__target, null).messages.filter(function (m) { return m.indexOf('スクリプトのタイムゾーン') === 0; }).length"),
+  0
+);
 
 /* --- 通知 --- */
 const notified = run('notify_(buildSnapshot_(__target, null))');
@@ -334,6 +340,100 @@ check('毎日の実行: 過去7日分を見直す設定', run('CONFIG.daily.look
   run('dailyJob()');
   check('毎日の実行: 繰り返しても二重計上しない', run('readTable_(SHEETS.CALENDAR).rows.length'), before + 1);
   delete events['2026-08-20'];
+}
+
+/* --- この先の見込みと調整アドバイス --- */
+{
+  const shift = (date, h, m, hours, company, wage) => ({
+    id: `plan-${date}-${h}`,
+    title: `[${company}] ${String(h).padStart(2, '0')}:00-${String(h + hours).padStart(2, '0')}:00 休憩なし 時給${wage}円`,
+    start: new Date(2026, m - 1, date, h, 0),
+    end: new Date(2026, m - 1, date, h + hours, 0)
+  });
+  const fEnv = makeSandbox({
+    '2026-08-25': [shift(25, 9, 8, 8, '会社A', 1200)],
+    '2026-08-26': [shift(26, 9, 8, 8, '会社A', 1200)],
+    '2026-08-27': [shift(27, 9, 8, 8, '会社A', 1200)],
+    '2026-08-28': [shift(28, 9, 8, 4, '会社A', 1200)],
+    '2026-09-02': [shift(2, 9, 9, 8, '会社A', 1200)]
+  });
+  const fCtx = vm.createContext(fEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), fCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), fCtx, { filename: file });
+  }
+  const fRun = (expr) => vm.runInContext(expr, fCtx);
+  fRun('ensureSheets_()');
+  // 8月にすでに100時間の実績がある状態を作る
+  fRun(`appendRows_(SHEETS.CALENDAR, [{
+    id: 'past-1', date: '2026-08-01', company_name: '会社A', start_time: '09:00', end_time: '19:00',
+    break_hours: 0, worked_hours: 100, hourly_wage: 1200, estimated_amount: 120000,
+    reconciled: false, source_title: '', updated_at: ''
+  }])`);
+  fRun('__now = new Date(2026, 7, 22, 23, 30)');
+  const snap = fRun('buildSnapshot_(__now, null)');
+  const f = snap.forecast;
+
+  check('見込み: 先読みできる', f.available, true);
+  check('見込み: 期間', [f.from, f.to], ['2026-08-22', '2026-09-25']);
+  check('見込み: 予定の件数と時間', [f.plannedCount, f.plannedHours], [5, 36]);
+  check('見込み: 予定分の収入', f.plannedRevenue, 36 * 1200);
+
+  const aug = f.months.filter((m) => m.yearMonth === '2026-08')[0];
+  check('見込み: 8月は実績100h＋予定28h', [aug.actualHours, aug.plannedHours, aug.projectedHours], [100, 28, 128]);
+  check('見込み: 上限120hを超えるので警告', [aug.status, aug.overHours], ['警告', 8]);
+  const sep = f.months.filter((m) => m.yearMonth === '2026-09')[0];
+  check('見込み: 翌月も見る', [sep.yearMonth, sep.projectedHours, sep.status], ['2026-09', 8, '正常']);
+
+  const cutAdvice = f.advice.filter((a) => a.text.indexOf('上限') > 0 && a.level === '警告')[0];
+  check('見込み: 超過分と外すシフトを具体的に出す', [
+    cutAdvice.text.indexOf('8時間超えます') > 0,
+    cutAdvice.text.indexOf('8/25(火) 8時間') > 0,
+    cutAdvice.text.indexOf('120時間になり収まります') > 0
+  ], [true, true, true]);
+
+  const roomAdvice = f.advice.filter((a) => a.text.indexOf('余裕があります') > 0)[0];
+  check('見込み: 壁までの余裕を時間と日数で示す', [
+    roomAdvice.level,
+    roomAdvice.text.indexOf('123万円まで') > 0,
+    /あと\d+時間（8時間勤務で約\d+日）働けます/.test(roomAdvice.text)
+  ], ['情報', true, true]);
+
+  check('見込み: 全体ステータスに反映される', snap.level, '警告');
+  check('見込み: 先読みは勤務明細に書き込まない', fRun('readTable_(SHEETS.CALENDAR).rows.length'), 1);
+
+  // 実績として取り込み済みの勤務は予定から除く（二重計上しない）
+  fRun('__d = new Date(2026, 7, 25, 12, 0)');
+  fRun('importDateRange_(__d, __d)');
+  const after = fRun('buildSnapshot_(__now, null)').forecast;
+  check('見込み: 取り込み済みの分は予定から外れる', [after.plannedCount, after.plannedHours], [4, 28]);
+  const aug2 = after.months.filter((m) => m.yearMonth === '2026-08')[0];
+  check('見込み: 実績に移っても合計は変わらない', aug2.projectedHours, 128);
+
+  // 壁を超える見込みのとき
+  fRun(`appendRows_(SHEETS.MANUAL, [{
+    id: 'big', source_name: 'テスト', income_category: '給与所得', period: '2026-01',
+    amount: 1250000, expenses: 0, note: '', updated_at: ''
+  }])`);
+  const over = fRun('buildSnapshot_(__now, null)').forecast;
+  const overAdvice = over.advice.filter((a) => a.text.indexOf('壁を') > 0 && a.level === '警告')[0];
+  check('見込み: 壁超過を金額と時間で警告', [
+    overAdvice.text.indexOf('123万円の壁を') > 0,
+    /\d+時間分（8時間勤務で約\d+日分）減らす必要があります/.test(overAdvice.text)
+  ], [true, true]);
+
+  // 予定が無い場合
+  const emptyEnv = makeSandbox({});
+  const eCtx = vm.createContext(emptyEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), eCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), eCtx, { filename: file });
+  }
+  vm.runInContext('ensureSheets_()', eCtx);
+  const emptyForecast = vm.runInContext('buildSnapshot_(new Date(2026, 7, 22), null)', eCtx).forecast;
+  check('見込み: 予定が無ければその旨を伝える', emptyForecast.advice.filter((a) => a.text.indexOf('勤務予定は入っていません') > 0).length, 1);
 }
 
 /* --- 一括取り込み（SeedData）の仕組み --- */

@@ -107,6 +107,7 @@ function buildAppData_() {
       };
     }),
     hours: snapshot.hours,
+    forecast: snapshot.forecast,
     annual: {
       calendarRevenue: a.calendarRevenue,
       manualSalaryRevenue: a.manualSalaryRevenue,

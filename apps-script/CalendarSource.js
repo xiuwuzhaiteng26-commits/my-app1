@@ -82,3 +82,55 @@ function fetchWorkEntriesForDate_(date) {
 
   return result;
 }
+
+/**
+ * 期間内の予定をまとめて1回で取得し、勤務予定だけを解析して返す。
+ * シートには書き込まない（先読み用）。
+ */
+function fetchPlannedShifts_(startDate, endDate) {
+  var events = getTargetCalendar_().getEvents(startDate, endDate);
+  var result = { entries: [], skipped: 0, errors: [] };
+
+  events.forEach(function (event) {
+    var title = event.getTitle();
+    var parsed = parseWorkEventTitle_(title);
+    if (parsed.kind === 'skip') {
+      result.skipped++;
+      return;
+    }
+    var dateStr = formatDate_(event.getStartTime());
+    if (parsed.kind === 'error') {
+      result.errors.push(dateStr + ' 「' + title + '」: ' + parsed.reason);
+      return;
+    }
+
+    var startTime = parsed.startTime;
+    var endTime = parsed.endTime;
+    if (!parsed.hasTimeRange) {
+      if (event.isAllDayEvent()) {
+        result.errors.push(dateStr + ' 「' + title + '」: 終日予定でタイトルにも時刻がありません');
+        return;
+      }
+      startTime = formatTime_(event.getStartTime());
+      endTime = formatTime_(event.getEndTime());
+    }
+
+    var workedHours = computeWorkedHours_(startTime, endTime, parsed.breakHours);
+    if (workedHours === null || workedHours === 0) return;
+
+    result.entries.push({
+      date: dateStr,
+      company_name: parsed.companyName,
+      start_time: startTime,
+      end_time: endTime,
+      worked_hours: round2_(workedHours),
+      hourly_wage: parsed.hourlyWage,
+      estimated_amount: computeEstimatedAmount_(workedHours, parsed.hourlyWage)
+    });
+  });
+
+  result.entries.sort(function (a, b) {
+    return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+  });
+  return result;
+}
