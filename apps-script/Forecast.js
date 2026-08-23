@@ -42,6 +42,7 @@ function buildForecast_(calendarRows, limitRows, walls, annual, today) {
     plannedRevenue: sumBy_(planned, 'estimated_amount'),
     errors: fetched.errors,
     months: forecastMonths_(calendarRows, planned, limitRows, today),
+    consecutive: forecastConsecutive_(calendarRows, planned, limitRows, today),
     walls: forecastWalls_(walls, annual, planned),
     pace: forecastPace_(calendarRows, annual, walls, today),
     averageWage: averageHourlyWage_(planned.length > 0 ? planned : calendarRows)
@@ -71,15 +72,7 @@ function averageHourlyWage_(rows) {
 
 /** 会社×月ごとの「実績＋予定＝見込み」 */
 function forecastMonths_(calendarRows, planned, limitRows, today) {
-  var limits = {};
-  limitRows.forEach(function (r) {
-    var name = String(r.company_name || '').trim();
-    if (!name) return;
-    limits[name] = {
-      limit: toNumber_(r.monthly_hour_limit) || CONFIG.hours.defaultMonthlyLimit,
-      confirmed: toBool_(r.confirmed)
-    };
-  });
+  var limits = readCompanyLimits_(limitRows);
 
   var currentMonth = formatYearMonth_(today);
   var scope = {};
@@ -113,7 +106,7 @@ function forecastMonths_(calendarRows, planned, limitRows, today) {
         return yearMonthOfDateString_(e.date) === yearMonth && e.company_name === companyName;
       });
       var plannedHours = sumBy_(plannedShifts, 'worked_hours');
-      var info = limits[companyName] || { limit: CONFIG.hours.defaultMonthlyLimit, confirmed: false };
+      var info = limits[companyName] || defaultCompanyLimit_();
       var projected = round2_(actualHours + plannedHours);
       var ratio = info.limit > 0 ? projected / info.limit : 0;
       var status = '正常';
@@ -135,6 +128,18 @@ function forecastMonths_(calendarRows, planned, limitRows, today) {
         plannedShifts: plannedShifts
       };
     });
+}
+
+/** これからの予定も含めた「連続月」の見込み */
+function forecastConsecutive_(calendarRows, planned, limitRows, today) {
+  var extra = {};
+  planned.forEach(function (e) {
+    var ym = yearMonthOfDateString_(e.date);
+    if (!ym) return;
+    var key = e.company_name + '\t' + ym;
+    extra[key] = (extra[key] || 0) + toNumber_(e.worked_hours);
+  });
+  return evaluateConsecutiveMonths_(calendarRows, limitRows, today, extra);
 }
 
 /** 予定を全部こなした場合の壁の状況 */
@@ -242,6 +247,11 @@ function buildAdvice_(forecast, planned) {
           'あと ' + m.remainingHours + '時間で上限です。'
       });
     }
+  });
+
+  (forecast.consecutive || []).forEach(function (c) {
+    if (c.status === '正常' || !c.message) return;
+    advice.push({ level: c.status, text: '（予定を含めた見込み）' + c.message });
   });
 
   var wage = forecast.averageWage;

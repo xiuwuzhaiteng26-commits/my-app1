@@ -50,7 +50,17 @@ SCHEMA[SHEETS.MANUAL] = [
   'note',
   'updated_at'
 ];
-SCHEMA[SHEETS.LIMITS] = ['company_name', 'monthly_hour_limit', 'confirmed', 'note', 'updated_at'];
+SCHEMA[SHEETS.LIMITS] = [
+  'company_name',
+  'monthly_hour_limit',
+  'confirmed',
+  'note',
+  'updated_at',
+  // 以下は後から追加した列。既存シートの並びを崩さないよう末尾に足している
+  'weekly_hour_limit',
+  'consecutive_months',
+  'basis'
+];
 SCHEMA[SHEETS.WALLS] = ['name', 'amount', 'applicable_year', 'last_updated', 'note'];
 SCHEMA[SHEETS.RECONCILE] = [
   'id',
@@ -87,7 +97,16 @@ HEADER_LABELS[SHEETS.CALENDAR] = [
   '更新日時'
 ];
 HEADER_LABELS[SHEETS.MANUAL] = ['ID', '収入元', '区分', '対象期間', '金額(円)', '必要経費(円)', 'メモ', '更新日時'];
-HEADER_LABELS[SHEETS.LIMITS] = ['勤務先', '月間上限(h)', '確定', 'メモ', '更新日時'];
+HEADER_LABELS[SHEETS.LIMITS] = [
+  '勤務先',
+  '月間上限(h)',
+  '確定',
+  'メモ',
+  '更新日時',
+  '週の上限(h)',
+  '連続月数',
+  '根拠'
+];
 HEADER_LABELS[SHEETS.WALLS] = ['壁の名前', '金額(円)', '適用年', '最終更新日', '備考'];
 HEADER_LABELS[SHEETS.RECONCILE] = [
   'ID',

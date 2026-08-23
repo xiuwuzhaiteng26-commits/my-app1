@@ -290,6 +290,27 @@ function addMonths_(yearMonth, n) {
   return Math.floor(total / 12) + '-' + pad2_((total % 12) + 1);
 }
 
+/** 'yyyy-MM-dd' が属する週（月曜始まり）の月曜日を返す */
+function weekStartOf_(dateStr) {
+  var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  var date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  var offset = (date.getDay() + 6) % 7; // 月曜=0
+  date.setDate(date.getDate() - offset);
+  return (
+    date.getFullYear() + '-' + pad2_(date.getMonth() + 1) + '-' + pad2_(date.getDate())
+  );
+}
+
+/** 'yyyy-MM-dd' を n 日進める */
+function addDays_(dateStr, n) {
+  var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return dateStr;
+  var date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  date.setDate(date.getDate() + n);
+  return date.getFullYear() + '-' + pad2_(date.getMonth() + 1) + '-' + pad2_(date.getDate());
+}
+
 /* ======================= Sheets.js ======================= */
 
 /**
@@ -344,7 +365,17 @@ SCHEMA[SHEETS.MANUAL] = [
   'note',
   'updated_at'
 ];
-SCHEMA[SHEETS.LIMITS] = ['company_name', 'monthly_hour_limit', 'confirmed', 'note', 'updated_at'];
+SCHEMA[SHEETS.LIMITS] = [
+  'company_name',
+  'monthly_hour_limit',
+  'confirmed',
+  'note',
+  'updated_at',
+  // 以下は後から追加した列。既存シートの並びを崩さないよう末尾に足している
+  'weekly_hour_limit',
+  'consecutive_months',
+  'basis'
+];
 SCHEMA[SHEETS.WALLS] = ['name', 'amount', 'applicable_year', 'last_updated', 'note'];
 SCHEMA[SHEETS.RECONCILE] = [
   'id',
@@ -381,7 +412,16 @@ HEADER_LABELS[SHEETS.CALENDAR] = [
   '更新日時'
 ];
 HEADER_LABELS[SHEETS.MANUAL] = ['ID', '収入元', '区分', '対象期間', '金額(円)', '必要経費(円)', 'メモ', '更新日時'];
-HEADER_LABELS[SHEETS.LIMITS] = ['勤務先', '月間上限(h)', '確定', 'メモ', '更新日時'];
+HEADER_LABELS[SHEETS.LIMITS] = [
+  '勤務先',
+  '月間上限(h)',
+  '確定',
+  'メモ',
+  '更新日時',
+  '週の上限(h)',
+  '連続月数',
+  '根拠'
+];
 HEADER_LABELS[SHEETS.WALLS] = ['壁の名前', '金額(円)', '適用年', '最終更新日', '備考'];
 HEADER_LABELS[SHEETS.RECONCILE] = [
   'ID',
@@ -896,15 +936,7 @@ function evaluateWalls_(wallRows, totalRevenue, targetYear) {
  * 80%で「注意」、100%で「警告」。
  */
 function aggregateMonthlyHours_(calendarRows, limitRows, yearMonth) {
-  var limits = {};
-  limitRows.forEach(function (r) {
-    var name = String(r.company_name || '').trim();
-    if (!name) return;
-    limits[name] = {
-      limit: toNumber_(r.monthly_hour_limit) || CONFIG.hours.defaultMonthlyLimit,
-      confirmed: toBool_(r.confirmed)
-    };
-  });
+  var limits = readCompanyLimits_(limitRows);
 
   var byCompany = {};
   calendarRows.forEach(function (r) {
@@ -920,10 +952,7 @@ function aggregateMonthlyHours_(calendarRows, limitRows, yearMonth) {
   return Object.keys(byCompany)
     .sort()
     .map(function (name) {
-      var limitInfo = limits[name] || {
-        limit: CONFIG.hours.defaultMonthlyLimit,
-        confirmed: false
-      };
+      var limitInfo = limits[name] || defaultCompanyLimit_();
       var hours = round2_(byCompany[name].hours);
       var ratio = limitInfo.limit > 0 ? hours / limitInfo.limit : 0;
       var status = '正常';
@@ -937,10 +966,170 @@ function aggregateMonthlyHours_(calendarRows, limitRows, yearMonth) {
         days: byCompany[name].days,
         limit: limitInfo.limit,
         confirmed: limitInfo.confirmed,
+        basis: limitInfo.basis,
         ratio: ratio,
         status: status
       };
     });
+}
+
+/** 勤務先ごとの上限設定を読む */
+function readCompanyLimits_(limitRows) {
+  var limits = {};
+  (limitRows || []).forEach(function (r) {
+    var name = String(r.company_name || '').trim();
+    if (!name) return;
+    limits[name] = {
+      limit: toNumber_(r.monthly_hour_limit) || CONFIG.hours.defaultMonthlyLimit,
+      weeklyLimit: toNumber_(r.weekly_hour_limit),
+      consecutiveMonths: toNumber_(r.consecutive_months) || 1,
+      confirmed: toBool_(r.confirmed),
+      basis: String(r.basis || '')
+    };
+  });
+  return limits;
+}
+
+function defaultCompanyLimit_() {
+  return {
+    limit: CONFIG.hours.defaultMonthlyLimit,
+    weeklyLimit: 0,
+    consecutiveMonths: 1,
+    confirmed: false,
+    basis: ''
+  };
+}
+
+function statusForRatio_(ratio) {
+  if (ratio >= CONFIG.hours.alertRatio) return '警告';
+  if (ratio >= CONFIG.hours.warnRatio) return '注意';
+  return '正常';
+}
+
+/**
+ * 週の上限がある勤務先について、直近の週ごとの実働時間を集計する。
+ * 「正社員の週所定労働時間の4分の3」のように週単位で基準が示された場合に使う。
+ */
+function aggregateWeeklyHours_(calendarRows, limitRows, today, weeks) {
+  var limits = readCompanyLimits_(limitRows);
+  var targets = Object.keys(limits).filter(function (name) {
+    return limits[name].weeklyLimit > 0;
+  });
+  if (targets.length === 0) return [];
+
+  var count = weeks || 4;
+  var thisWeek = weekStartOf_(formatDate_(today));
+  var windowStart = addDays_(thisWeek, -7 * (count - 1));
+
+  var byKey = {};
+  calendarRows.forEach(function (r) {
+    var name = String(r.company_name || '').trim();
+    if (!limits[name] || limits[name].weeklyLimit <= 0) return;
+    var date = toDateString_(r.date);
+    var weekStart = weekStartOf_(date);
+    if (!weekStart || weekStart < windowStart || weekStart > thisWeek) return;
+    var key = name + '\t' + weekStart;
+    byKey[key] = (byKey[key] || 0) + toNumber_(r.worked_hours);
+  });
+
+  var result = [];
+  targets.sort().forEach(function (name) {
+    for (var i = count - 1; i >= 0; i--) {
+      var weekStart = addDays_(thisWeek, -7 * i);
+      var hours = round2_(byKey[name + '\t' + weekStart] || 0);
+      var limit = limits[name].weeklyLimit;
+      var ratio = limit > 0 ? hours / limit : 0;
+      result.push({
+        companyName: name,
+        weekStart: weekStart,
+        weekEnd: addDays_(weekStart, 6),
+        isCurrentWeek: weekStart === thisWeek,
+        hours: hours,
+        limit: limit,
+        confirmed: limits[name].confirmed,
+        ratio: ratio,
+        status: statusForRatio_(ratio),
+        remainingHours: round2_(Math.max(0, limit - hours))
+      });
+    }
+  });
+  return result;
+}
+
+/**
+ * 「月◯時間以上が◯ヶ月連続」という条件の勤務先を判定する。
+ * 連続月数が1の勤務先（単月判定）は対象外。
+ */
+function evaluateConsecutiveMonths_(calendarRows, limitRows, today, extraHours) {
+  var limits = readCompanyLimits_(limitRows);
+  var currentMonth = formatYearMonth_(today);
+
+  var monthly = {};
+  calendarRows.forEach(function (r) {
+    var name = String(r.company_name || '').trim();
+    if (!name) return;
+    var ym = yearMonthOfDateString_(toDateString_(r.date));
+    if (!ym) return;
+    monthly[name + '\t' + ym] = (monthly[name + '\t' + ym] || 0) + toNumber_(r.worked_hours);
+  });
+  // 見込みで判定したいときに、これからの予定分を足し込む
+  Object.keys(extraHours || {}).forEach(function (key) {
+    monthly[key] = (monthly[key] || 0) + toNumber_(extraHours[key]);
+  });
+
+  var result = [];
+  Object.keys(limits)
+    .sort()
+    .forEach(function (name) {
+      var info = limits[name];
+      if (info.consecutiveMonths < 2) return;
+
+      var months = [];
+      for (var i = info.consecutiveMonths - 1; i >= 0; i--) {
+        var ym = addMonths_(currentMonth, -i);
+        var hours = round2_(monthly[name + '\t' + ym] || 0);
+        months.push({
+          yearMonth: ym,
+          hours: hours,
+          isCurrentMonth: ym === currentMonth,
+          over: hours >= info.limit
+        });
+      }
+
+      var past = months.slice(0, months.length - 1);
+      var current = months[months.length - 1];
+      var pastAllOver = past.length > 0 && past.every(function (m) {
+        return m.over;
+      });
+
+      var status = '正常';
+      var message = '';
+      if (pastAllOver && current.over) {
+        status = '警告';
+        message =
+          name + ' は ' + info.consecutiveMonths + 'ヶ月連続で月' + info.limit + '時間以上になっています（' +
+          months.map(function (m) {
+            return m.yearMonth + ' ' + m.hours + 'h';
+          }).join(' / ') + '）。勤務先に相談してください。';
+      } else if (pastAllOver) {
+        status = '注意';
+        message =
+          '先月まで ' + past.length + 'ヶ月連続で月' + info.limit + '時間以上です。' +
+          name + ' の今月は ' + current.hours + '時間。あと ' + round2_(Math.max(0, info.limit - current.hours)) +
+          '時間で' + info.consecutiveMonths + 'ヶ月連続になるので、今月は' + info.limit + '時間未満に抑えてください。';
+      }
+
+      result.push({
+        companyName: name,
+        limit: info.limit,
+        requiredMonths: info.consecutiveMonths,
+        months: months,
+        status: status,
+        message: message,
+        basis: info.basis
+      });
+    });
+  return result;
 }
 
 /** 月次の答え合わせ（給与明細の実額 vs カレンダー推定額）の判定 */
@@ -1153,6 +1342,7 @@ function buildForecast_(calendarRows, limitRows, walls, annual, today) {
     plannedRevenue: sumBy_(planned, 'estimated_amount'),
     errors: fetched.errors,
     months: forecastMonths_(calendarRows, planned, limitRows, today),
+    consecutive: forecastConsecutive_(calendarRows, planned, limitRows, today),
     walls: forecastWalls_(walls, annual, planned),
     pace: forecastPace_(calendarRows, annual, walls, today),
     averageWage: averageHourlyWage_(planned.length > 0 ? planned : calendarRows)
@@ -1182,15 +1372,7 @@ function averageHourlyWage_(rows) {
 
 /** 会社×月ごとの「実績＋予定＝見込み」 */
 function forecastMonths_(calendarRows, planned, limitRows, today) {
-  var limits = {};
-  limitRows.forEach(function (r) {
-    var name = String(r.company_name || '').trim();
-    if (!name) return;
-    limits[name] = {
-      limit: toNumber_(r.monthly_hour_limit) || CONFIG.hours.defaultMonthlyLimit,
-      confirmed: toBool_(r.confirmed)
-    };
-  });
+  var limits = readCompanyLimits_(limitRows);
 
   var currentMonth = formatYearMonth_(today);
   var scope = {};
@@ -1224,7 +1406,7 @@ function forecastMonths_(calendarRows, planned, limitRows, today) {
         return yearMonthOfDateString_(e.date) === yearMonth && e.company_name === companyName;
       });
       var plannedHours = sumBy_(plannedShifts, 'worked_hours');
-      var info = limits[companyName] || { limit: CONFIG.hours.defaultMonthlyLimit, confirmed: false };
+      var info = limits[companyName] || defaultCompanyLimit_();
       var projected = round2_(actualHours + plannedHours);
       var ratio = info.limit > 0 ? projected / info.limit : 0;
       var status = '正常';
@@ -1246,6 +1428,18 @@ function forecastMonths_(calendarRows, planned, limitRows, today) {
         plannedShifts: plannedShifts
       };
     });
+}
+
+/** これからの予定も含めた「連続月」の見込み */
+function forecastConsecutive_(calendarRows, planned, limitRows, today) {
+  var extra = {};
+  planned.forEach(function (e) {
+    var ym = yearMonthOfDateString_(e.date);
+    if (!ym) return;
+    var key = e.company_name + '\t' + ym;
+    extra[key] = (extra[key] || 0) + toNumber_(e.worked_hours);
+  });
+  return evaluateConsecutiveMonths_(calendarRows, limitRows, today, extra);
 }
 
 /** 予定を全部こなした場合の壁の状況 */
@@ -1355,6 +1549,11 @@ function buildAdvice_(forecast, planned) {
     }
   });
 
+  (forecast.consecutive || []).forEach(function (c) {
+    if (c.status === '正常' || !c.message) return;
+    advice.push({ level: c.status, text: '（予定を含めた見込み）' + c.message });
+  });
+
   var wage = forecast.averageWage;
   forecast.walls.forEach(function (w) {
     if (w.status === '警告') {
@@ -1450,6 +1649,8 @@ function buildSnapshot_(today, runInfo) {
   var annual = aggregateAnnual_(calendarRows, manualRows, targetYear);
   var walls = evaluateWalls_(wallRows, annual.totalRevenue, targetYear);
   var hours = aggregateMonthlyHours_(calendarRows, limitRows, yearMonth);
+  var weekly = aggregateWeeklyHours_(calendarRows, limitRows, today);
+  var consecutive = evaluateConsecutiveMonths_(calendarRows, limitRows, today);
   var forecast = buildForecast_(calendarRows, limitRows, walls, annual, today);
 
   var messages = [];
@@ -1461,7 +1662,7 @@ function buildSnapshot_(today, runInfo) {
   }
 
   var level = '正常';
-  walls.concat(hours).forEach(function (x) {
+  walls.concat(hours).concat(weekly).concat(consecutive).forEach(function (x) {
     if (x.status === '警告') level = '警告';
     else if (x.status === '注意' && level === '正常') level = '注意';
   });
@@ -1484,6 +1685,8 @@ function buildSnapshot_(today, runInfo) {
     annual: annual,
     walls: walls,
     hours: hours,
+    weekly: weekly,
+    consecutive: consecutive,
     reconcileRows: reconcileRows,
     forecast: forecast,
     messages: messages,
@@ -1636,6 +1839,53 @@ function writeSummarySheet_(snapshot) {
     });
   }
 
+  var weeklyRows = (snapshot.weekly || []).filter(function (w) {
+    return w.isCurrentWeek || w.hours > 0;
+  });
+  if (weeklyRows.length > 0) {
+    section('週ごとの労働時間（正社員の週所定労働時間の4分の3が基準の勤務先）');
+    tableHeader(['勤務先', '週（月曜〜日曜）', '実働(h)', '週の上限(h)', '残り(h)', '状態']);
+    weeklyRows.forEach(function (w) {
+      statusRow(
+        [
+          w.companyName + (w.isCurrentWeek ? '（今週）' : ''),
+          w.weekStart + ' 〜 ' + w.weekEnd,
+          w.hours,
+          w.limit,
+          w.remainingHours,
+          w.status
+        ],
+        6
+      );
+    });
+  }
+
+  var consecutiveRows = (snapshot.consecutive || []).filter(function (c) {
+    return c.requiredMonths >= 2;
+  });
+  if (consecutiveRows.length > 0) {
+    section('連続月の判定（「月◯時間以上が◯ヶ月連続」が基準の勤務先）');
+    tableHeader(['勤務先', '条件', '実績', '状態']);
+    consecutiveRows.forEach(function (c) {
+      statusRow(
+        [
+          c.companyName,
+          '月' + c.limit + '時間以上が' + c.requiredMonths + 'ヶ月連続',
+          c.months
+            .map(function (m) {
+              return m.yearMonth + ' ' + m.hours + 'h';
+            })
+            .join(' / '),
+          c.status,
+          '',
+          c.status
+        ],
+        6
+      );
+      if (c.message) push(['　→ ' + c.message]);
+    });
+  }
+
   section('月次の答え合わせ（給与明細との差分）');
   tableHeader(['年月', '勤務先', 'カレンダー推定額', '実際の支給額', '差分', '状態']);
   var recent = snapshot.reconcileRows.slice(-12);
@@ -1736,6 +1986,22 @@ function buildNotificationText_(snapshot) {
         (h.confirmed ? '' : ' ※上限は暫定値')
     );
   });
+  var currentWeek = (snapshot.weekly || []).filter(function (w) {
+    return w.isCurrentWeek;
+  });
+  if (currentWeek.length > 0) {
+    lines.push('');
+    lines.push('【今週の労働時間（週の上限がある勤務先）】');
+    currentWeek.forEach(function (w) {
+      lines.push('  ・' + w.companyName + ' : ' + w.hours + 'h / ' + w.limit + 'h ' + w.status);
+    });
+  }
+  (snapshot.consecutive || []).forEach(function (c) {
+    if (c.status === '正常' || !c.message) return;
+    lines.push('');
+    lines.push('【連続月の注意】' + c.message);
+  });
+
   var forecast = snapshot.forecast;
   if (forecast && forecast.available) {
     lines.push('');
@@ -2060,6 +2326,24 @@ var SEED_MANUAL_INCOME = [];
  */
 var SEED_SHIFTS = [];
 
+/**
+ * 勤務先ごとの上限（会社から回答をもらったもの）
+ *
+ * ここも空のまま公開リポジトリに置いています。会社名は個人情報なので、
+ * 自分の Apps Script プロジェクト側でだけ書いてください。
+ *
+ * 書き方:
+ *   {
+ *     company_name: '〇〇',
+ *     monthly_hour_limit: 130,   // 月の上限（時間）
+ *     weekly_hour_limit: 30,     // 週の上限（時間）。無ければ 0
+ *     consecutive_months: 1,     // 「◯ヶ月連続で対象」と言われた場合その月数。通常は1
+ *     confirmed: true,           // 会社から正式な回答をもらったか
+ *     basis: '正社員の週所定労働時間40時間の3/4（2026-08-23 メール回答）'
+ *   }
+ */
+var SEED_COMPANY_LIMITS = [];
+
 /** 同じ勤務を指すかどうかの判定キー */
 function shiftKey_(date, companyName, startTime) {
   return toDateString_(date) + '\t' + String(companyName).trim() + '\t' + toTimeString_(startTime);
@@ -2068,7 +2352,7 @@ function shiftKey_(date, companyName, startTime) {
 /** メニューから呼ぶ本体 */
 function importSeedData() {
   ensureSheets_();
-  if (SEED_MANUAL_INCOME.length === 0 && SEED_SHIFTS.length === 0) {
+  if (SEED_MANUAL_INCOME.length === 0 && SEED_SHIFTS.length === 0 && SEED_COMPANY_LIMITS.length === 0) {
     showAlert_(
       '登録するデータがありません',
       'SeedData の SEED_MANUAL_INCOME と SEED_SHIFTS に、収入とシフトを書いてから実行してください。'
@@ -2077,6 +2361,7 @@ function importSeedData() {
   }
   var manual = seedManualIncome_();
   var shifts = seedShifts_();
+  var limits = seedCompanyLimits_();
 
   recalcReconciliations_();
   var snapshot = buildSnapshot_(new Date(), null);
@@ -2085,7 +2370,10 @@ function importSeedData() {
   var message =
     '手入力の収入: ' + manual.inserted + '件追加 / ' + manual.updated + '件更新\n' +
     'シフト: ' + shifts.inserted + '件追加 / ' + shifts.updated + '件更新' +
-    (shifts.skipped ? ' / ' + shifts.skipped + '件はカレンダー取り込み済みのため見送り' : '');
+    (shifts.skipped ? ' / ' + shifts.skipped + '件はカレンダー取り込み済みのため見送り' : '') +
+    (limits.inserted + limits.updated > 0
+      ? '\n勤務先の上限: ' + limits.inserted + '件追加 / ' + limits.updated + '件更新'
+      : '');
   writeLog_('seed', '正常', message.replace(/\n/g, ' '));
   showSummaryAlert_('実データを取り込みました\n\n' + message, snapshot);
   return snapshot;
@@ -2107,6 +2395,25 @@ function seedManualIncome_() {
     };
   });
   return upsertRows_(SHEETS.MANUAL, rows, 'id');
+}
+
+/** 会社から回答をもらった上限を登録（勤務先名をキーに上書き） */
+function seedCompanyLimits_() {
+  if (SEED_COMPANY_LIMITS.length === 0) return { inserted: 0, updated: 0 };
+  var now = formatDateTime_(new Date());
+  var rows = SEED_COMPANY_LIMITS.map(function (item) {
+    return {
+      company_name: item.company_name,
+      monthly_hour_limit: item.monthly_hour_limit,
+      confirmed: !!item.confirmed,
+      note: item.confirmed ? '会社から回答済みの実数' : '暫定値',
+      updated_at: now,
+      weekly_hour_limit: item.weekly_hour_limit || 0,
+      consecutive_months: item.consecutive_months || 1,
+      basis: item.basis || ''
+    };
+  });
+  return upsertRows_(SHEETS.LIMITS, rows, 'company_name');
 }
 
 /** シフトを勤務明細に登録（カレンダーから取り込み済みの勤務は触らない） */
@@ -2278,7 +2585,10 @@ function buildAppData_() {
     return {
       companyName: String(r.company_name || ''),
       limit: toNumber_(r.monthly_hour_limit) || CONFIG.hours.defaultMonthlyLimit,
+      weeklyLimit: toNumber_(r.weekly_hour_limit),
+      consecutiveMonths: toNumber_(r.consecutive_months) || 1,
       confirmed: toBool_(r.confirmed),
+      basis: String(r.basis || ''),
       note: String(r.note || '')
     };
   });
@@ -2324,6 +2634,8 @@ function buildAppData_() {
       };
     }),
     hours: snapshot.hours,
+    weekly: snapshot.weekly,
+    consecutive: snapshot.consecutive,
     forecast: snapshot.forecast,
     annual: {
       calendarRevenue: a.calendarRevenue,
@@ -2439,7 +2751,10 @@ function appSaveCompanyLimit(payload) {
     monthly_hour_limit: limit,
     confirmed: !!payload.confirmed,
     note: payload.confirmed ? '会社から回答済みの実数' : '暫定値。正社員の所定労働時間の回答が来たら実数に差し替える',
-    updated_at: formatDateTime_(new Date())
+    updated_at: formatDateTime_(new Date()),
+    weekly_hour_limit: toNumber_(payload.weeklyLimit),
+    consecutive_months: toNumber_(payload.consecutiveMonths) || 1,
+    basis: payload.basis === undefined ? (target ? String(target.basis || '') : '') : String(payload.basis)
   };
   if (target) writeRowAt_(SHEETS.LIMITS, target._rowIndex, row);
   else appendRows_(SHEETS.LIMITS, [row]);
@@ -2889,6 +3204,82 @@ function runTests() {
   );
   check('時間: 100%到達で警告', over[0].status, '警告');
 
+  /* --- 週の上限（正社員の週所定労働時間の4分の3） --- */
+  check('週の開始日: 水曜日から月曜日', weekStartOf_('2026-08-19'), '2026-08-17');
+  check('週の開始日: 月曜日はその日', weekStartOf_('2026-08-17'), '2026-08-17');
+  check('週の開始日: 日曜日は同じ週の月曜', weekStartOf_('2026-08-23'), '2026-08-17');
+
+  var weeklyLimitRows = [
+    { company_name: 'リージェンシー', monthly_hour_limit: 130, weekly_hour_limit: 30, consecutive_months: 1, confirmed: true },
+    { company_name: 'Kakedas', monthly_hour_limit: 120, weekly_hour_limit: 0, consecutive_months: 1, confirmed: false }
+  ];
+  var weeklyRows = [
+    { date: '2026-08-17', company_name: 'リージェンシー', worked_hours: 8, estimated_amount: 0 },
+    { date: '2026-08-19', company_name: 'リージェンシー', worked_hours: 8, estimated_amount: 0 },
+    { date: '2026-08-21', company_name: 'リージェンシー', worked_hours: 9, estimated_amount: 0 },
+    { date: '2026-08-21', company_name: 'Kakedas', worked_hours: 8, estimated_amount: 0 }
+  ];
+  var weekly = aggregateWeeklyHours_(weeklyRows, weeklyLimitRows, new Date(2026, 7, 21, 12, 0), 2);
+  check('週集計: 週上限のある勤務先だけ', weekly.map(function (w) { return w.companyName; }).join(','), 'リージェンシー,リージェンシー');
+  var thisWeek = weekly.filter(function (w) { return w.isCurrentWeek; })[0];
+  check('週集計: 今週の実働', [thisWeek.weekStart, thisWeek.hours, thisWeek.limit], ['2026-08-17', 25, 30]);
+  check('週集計: 80%超で注意', thisWeek.status, '注意');
+  check('週集計: 残り時間', thisWeek.remainingHours, 5);
+  var overWeek = aggregateWeeklyHours_(
+    weeklyRows.concat([{ date: '2026-08-22', company_name: 'リージェンシー', worked_hours: 6, estimated_amount: 0 }]),
+    weeklyLimitRows,
+    new Date(2026, 7, 21, 12, 0),
+    1
+  );
+  check('週集計: 上限到達で警告', [overWeek[0].hours, overWeek[0].status], [31, '警告']);
+  check('週集計: 週上限が無ければ対象外', aggregateWeeklyHours_(weeklyRows, [weeklyLimitRows[1]], new Date(2026, 7, 21), 2).length, 0);
+
+  /* --- 連続月（月◯時間以上が◯ヶ月連続） --- */
+  var beatLimits = [
+    { company_name: 'ビート', monthly_hour_limit: 80, weekly_hour_limit: 0, consecutive_months: 2, confirmed: true },
+    { company_name: 'Kakedas', monthly_hour_limit: 120, weekly_hour_limit: 0, consecutive_months: 1, confirmed: false }
+  ];
+  var quiet = evaluateConsecutiveMonths_(
+    [{ date: '2026-08-01', company_name: 'ビート', worked_hours: 40, estimated_amount: 0 }],
+    beatLimits,
+    new Date(2026, 7, 23)
+  );
+  check('連続月: 対象は連続月数2以上の勤務先だけ', quiet.length, 1);
+  check('連続月: どちらも下回れば正常', quiet[0].status, '正常');
+
+  var warned = evaluateConsecutiveMonths_(
+    [
+      { date: '2026-07-01', company_name: 'ビート', worked_hours: 85, estimated_amount: 0 },
+      { date: '2026-08-01', company_name: 'ビート', worked_hours: 40, estimated_amount: 0 }
+    ],
+    beatLimits,
+    new Date(2026, 7, 23)
+  );
+  check('連続月: 先月だけ超えていたら注意', warned[0].status, '注意');
+  check('連続月: 今月あと何時間で連続になるか示す', warned[0].message.indexOf('あと 40時間で2ヶ月連続') > 0, true);
+
+  var alerted = evaluateConsecutiveMonths_(
+    [
+      { date: '2026-07-01', company_name: 'ビート', worked_hours: 85, estimated_amount: 0 },
+      { date: '2026-08-01', company_name: 'ビート', worked_hours: 82, estimated_amount: 0 }
+    ],
+    beatLimits,
+    new Date(2026, 7, 23)
+  );
+  check('連続月: 2ヶ月連続で超えたら警告', alerted[0].status, '警告');
+  check('連続月: 実績を並べて示す', alerted[0].message.indexOf('2026-07 85h / 2026-08 82h') > 0, true);
+
+  var projected = evaluateConsecutiveMonths_(
+    [
+      { date: '2026-07-01', company_name: 'ビート', worked_hours: 85, estimated_amount: 0 },
+      { date: '2026-08-01', company_name: 'ビート', worked_hours: 60, estimated_amount: 0 }
+    ],
+    beatLimits,
+    new Date(2026, 7, 23),
+    { 'ビート\t2026-08': 25 }
+  );
+  check('連続月: 予定を足した見込みでも判定できる', projected[0].status, '警告');
+
   /* --- 月次の答え合わせ --- */
   check('答え合わせ: 誤差が小さければOK', evaluateReconciliation_(100000, 101000).status, 'OK');
   check('答え合わせ: 率も額も超えたら要確認', evaluateReconciliation_(100000, 120000).status, '要確認');
@@ -2914,6 +3305,6 @@ function runTests() {
 
 /* ======================= HTML（画面） ======================= */
 
-INLINE_HTML["App"] = "<!DOCTYPE html>\n<html lang=\"ja\">\n  <head>\n    <base target=\"_top\" />\n    <style>\n      :root {\n        --bg: #f4f5f7;\n        --card: #ffffff;\n        --line: #e3e5e8;\n        --text: #1c1f24;\n        --muted: #6b7280;\n        --accent: #1a73e8;\n        --ok: #1e8e3e;\n        --warn: #e8710a;\n        --alert: #d93025;\n        --ok-bg: #e6f4ea;\n        --warn-bg: #fef3e2;\n        --alert-bg: #fce8e6;\n      }\n      @media (prefers-color-scheme: dark) {\n        :root {\n          --bg: #15181c;\n          --card: #1f2328;\n          --line: #2f343a;\n          --text: #e8eaed;\n          --muted: #9aa0a6;\n          --accent: #8ab4f8;\n          --ok: #81c995;\n          --warn: #fdd663;\n          --alert: #f28b82;\n          --ok-bg: #1e3226;\n          --warn-bg: #3a3020;\n          --alert-bg: #3d2220;\n        }\n      }\n      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }\n      body {\n        margin: 0;\n        padding: 0 0 88px;\n        background: var(--bg);\n        color: var(--text);\n        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans',\n          'Noto Sans JP', 'Yu Gothic', sans-serif;\n        font-size: 15px;\n        line-height: 1.6;\n        -webkit-font-smoothing: antialiased;\n      }\n      header {\n        position: sticky; top: 0; z-index: 10;\n        background: var(--card); border-bottom: 1px solid var(--line);\n        padding: 12px 16px calc(12px + env(safe-area-inset-top));\n        display: flex; align-items: center; gap: 10px;\n      }\n      header h1 { font-size: 17px; margin: 0; flex: 1; }\n      header .updated { font-size: 11px; color: var(--muted); font-weight: normal; display: block; }\n      .icon-btn {\n        border: 1px solid var(--line); background: transparent; color: var(--text);\n        border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;\n      }\n      main { padding: 12px 12px 0; max-width: 620px; margin: 0 auto; }\n      .view { display: none; }\n      .view.active { display: block; }\n\n      .card {\n        background: var(--card); border: 1px solid var(--line);\n        border-radius: 14px; padding: 14px 16px; margin-bottom: 12px;\n      }\n      .card h2 { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; letter-spacing: .04em; }\n      .card h3 { font-size: 15px; margin: 0 0 2px; }\n\n      .badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 999px; }\n      .s-正常 { color: var(--ok); background: var(--ok-bg); }\n      .s-注意 { color: var(--warn); background: var(--warn-bg); }\n      .s-警告, .s-要確認 { color: var(--alert); background: var(--alert-bg); }\n      .s-OK { color: var(--ok); background: var(--ok-bg); }\n\n      .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }\n      .big.neg { color: var(--alert); }\n      .sub { font-size: 12px; color: var(--muted); }\n      .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }\n      .row + .row { margin-top: 6px; }\n      .row .k { color: var(--muted); font-size: 13px; }\n      .row .v { font-variant-numeric: tabular-nums; }\n      .strong { font-weight: 700; }\n      .divider { border-top: 1px solid var(--line); margin: 10px 0; }\n\n      .bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 10px 0 6px; }\n      .bar > i { display: block; height: 100%; border-radius: 999px; }\n      .f-正常 { background: var(--ok); }\n      .f-注意 { background: var(--warn); }\n      .f-警告 { background: var(--alert); }\n\n      ul.list { list-style: none; margin: 0; padding: 0; }\n      ul.list li { padding: 9px 0; border-top: 1px solid var(--line); }\n      ul.list li:first-child { border-top: 0; }\n      .muted { color: var(--muted); }\n      .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }\n\n      label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }\n      input, select, textarea {\n        width: 100%; padding: 10px 12px; font-size: 16px; color: var(--text);\n        background: var(--bg); border: 1px solid var(--line); border-radius: 10px;\n        font-family: inherit;\n      }\n      button.primary {\n        width: 100%; margin-top: 14px; padding: 12px; font-size: 15px; font-weight: 600;\n        border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer;\n      }\n      button.primary:disabled { opacity: .5; }\n      button.small {\n        padding: 7px 12px; font-size: 13px; border-radius: 8px;\n        border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer;\n      }\n      .inline { display: flex; gap: 8px; align-items: center; }\n      .inline input { flex: 1; }\n      .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }\n      .check input { width: 18px; height: 18px; }\n      a { color: var(--accent); }\n\n      nav {\n        position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;\n        display: flex; background: var(--card); border-top: 1px solid var(--line);\n        padding-bottom: env(safe-area-inset-bottom);\n      }\n      nav button {\n        flex: 1; border: 0; background: transparent; color: var(--muted);\n        padding: 9px 0 11px; font-size: 11px; cursor: pointer; font-family: inherit;\n      }\n      nav button .ico { display: block; font-size: 19px; line-height: 1.3; }\n      nav button.active { color: var(--accent); font-weight: 700; }\n\n      #toast {\n        position: fixed; left: 50%; bottom: 78px; transform: translateX(-50%);\n        background: #202124; color: #fff; padding: 10px 18px; border-radius: 10px;\n        font-size: 13px; max-width: 88%; z-index: 40; display: none; box-shadow: 0 4px 16px rgba(0,0,0,.3);\n      }\n      #busy {\n        position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 50;\n        display: none; align-items: center; justify-content: center;\n      }\n      #busy div { background: var(--card); padding: 14px 22px; border-radius: 12px; font-size: 14px; }\n      .advice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }\n      .advice:first-child { border-top: 0; }\n      .advice .badge { flex: 0 0 auto; }\n      .s-情報 { color: var(--muted); background: var(--line); }\n      .disclaimer {\n        font-size: 11px; color: var(--muted); line-height: 1.6;\n        border-top: 1px solid var(--line); padding: 12px 4px 20px; margin-top: 6px;\n      }\n    </style>\n  </head>\n  <body>\n    <header>\n      <h1>年収の壁 <span class=\"updated\" id=\"updated\">読み込み中…</span></h1>\n      <button class=\"icon-btn\" id=\"reload\">更新</button>\n    </header>\n\n    <main>\n      <section class=\"view active\" id=\"view-home\"></section>\n      <section class=\"view\" id=\"view-income\"></section>\n      <section class=\"view\" id=\"view-forecast\"></section>\n      <section class=\"view\" id=\"view-reconcile\"></section>\n      <section class=\"view\" id=\"view-settings\"></section>\n      <div class=\"disclaimer\" id=\"disclaimer\"></div>\n    </main>\n\n    <nav>\n      <button data-view=\"home\" class=\"active\"><span class=\"ico\">🏠</span>ホーム</button>\n      <button data-view=\"income\"><span class=\"ico\">💴</span>収入</button>\n      <button data-view=\"forecast\"><span class=\"ico\">📅</span>見込み</button>\n      <button data-view=\"reconcile\"><span class=\"ico\">✅</span>照合</button>\n      <button data-view=\"settings\"><span class=\"ico\">⚙️</span>設定</button>\n    </nav>\n\n    <div id=\"toast\"></div>\n    <div id=\"busy\"><div>処理中…</div></div>\n\n    <script>\n      // 下のスクリプトが壊れても白い「読み込み中…」のまま放置しないための保険。\n      // 別の script ブロックに置くことで、後続ブロックの構文エラーも拾える。\n      window.addEventListener('error', function (event) {\n        var updated = document.getElementById('updated');\n        if (updated) updated.textContent = '表示エラー';\n        var home = document.getElementById('view-home');\n        if (home) {\n          home.innerHTML =\n            '<div class=\"card\"><h2>画面を表示できませんでした</h2><div class=\"sub\">' +\n            String(event.message || event.error || '不明なエラー') +\n            '</div><div class=\"sub\" style=\"margin-top:8px\">スプレッドシートのサマリータブからも同じ内容を確認できます。</div></div>';\n        }\n      });\n    </script>\n\n    <script>\n      // JSON はそのまま JavaScript のリテラルとして正しいので、文字列に包まず埋め込む。\n      // 文字列に包むと \\t や \\\" が JS 側で先に展開されてしまい、JSON.parse が壊れる。\n      var DATA = <?!= bootstrapJson ?>;\n      var CURRENT = 'home';\n\n      /* ---------- 小物 ---------- */\n      function esc(s) {\n        return String(s == null ? '' : s).replace(/[&<>\"']/g, function (c) {\n          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c];\n        });\n      }\n      function yen(n) {\n        var v = Math.round(Number(n) || 0);\n        var sign = v < 0 ? '-' : '';\n        return sign + Math.abs(v).toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',') + '円';\n      }\n      function pct(r) { return Math.round((Number(r) || 0) * 100) + '%'; }\n      function clamp(r) { return Math.max(0, Math.min(100, Math.round((Number(r) || 0) * 100))); }\n      function el(id) { return document.getElementById(id); }\n      function toast(msg) {\n        var t = el('toast');\n        t.textContent = msg;\n        t.style.display = 'block';\n        clearTimeout(t._timer);\n        t._timer = setTimeout(function () { t.style.display = 'none'; }, 4200);\n      }\n      function busy(on) { el('busy').style.display = on ? 'flex' : 'none'; }\n\n      function call(fnName, arg, onDone) {\n        busy(true);\n        var runner = google.script.run\n          .withSuccessHandler(function (res) {\n            busy(false);\n            if (res && res.data) DATA = res.data;\n            else if (res) DATA = res;\n            render();\n            if (onDone) onDone(res);\n            else if (res && res.message) toast(res.message);\n          })\n          .withFailureHandler(function (err) {\n            busy(false);\n            toast('エラー: ' + err.message);\n          });\n        if (arg === undefined) runner[fnName]();\n        else runner[fnName](arg);\n      }\n\n      function bar(ratio, status) {\n        return '<div class=\"bar\"><i class=\"f-' + esc(status) + '\" style=\"width:' + clamp(ratio) + '%\"></i></div>';\n      }\n      function card(title, inner) {\n        return '<div class=\"card\">' + (title ? '<h2>' + esc(title) + '</h2>' : '') + inner + '</div>';\n      }\n      function row(k, v, strong) {\n        return '<div class=\"row\"><span class=\"k\">' + esc(k) + '</span><span class=\"v' + (strong ? ' strong' : '') + '\">' + v + '</span></div>';\n      }\n\n      /* ---------- ホーム ---------- */\n      function renderHome() {\n        var d = DATA;\n        var html = '';\n\n        html += card(\n          '年間収入（額面） ' + d.targetYear + '年',\n          '<div class=\"big\">' + yen(d.annual.totalRevenue) + '</div>' +\n            '<div class=\"sub\">給与 ' + yen(d.annual.salaryRevenue) +\n            ' ／ 事業 ' + yen(d.annual.businessRevenue) +\n            ' ／ 雑 ' + yen(d.annual.miscRevenue) + '</div>'\n        );\n\n        d.walls.forEach(function (w) {\n          var over = w.remaining < 0;\n          html += card(\n            w.name + 'の壁',\n            '<div class=\"row\"><h3>' + (over ? '超過' : '残り') + '</h3><span class=\"badge s-' + esc(w.status) + '\">' + esc(w.status) + '</span></div>' +\n              '<div class=\"big' + (over ? ' neg' : '') + '\">' + yen(Math.abs(w.remaining)) + '</div>' +\n              bar(w.ratio, w.status) +\n              '<div class=\"row\"><span class=\"sub\">' + yen(w.amount) + ' のうち ' + pct(w.ratio) + '</span>' +\n              '<span class=\"sub\">更新 ' + esc(w.lastUpdated) + '</span></div>' +\n              (w.note ? '<div class=\"sub\" style=\"margin-top:6px\">' + esc(w.note) + '</div>' : '')\n          );\n        });\n\n        var hoursHtml = '';\n        if (!d.hours.length) {\n          hoursHtml = '<div class=\"empty\">今月の勤務データはまだありません</div>';\n        } else {\n          d.hours.forEach(function (h) {\n            hoursHtml +=\n              '<div style=\"margin-bottom:14px\">' +\n              '<div class=\"row\"><h3>' + esc(h.companyName) + '</h3><span class=\"badge s-' + esc(h.status) + '\">' + esc(h.status) + '</span></div>' +\n              bar(h.ratio, h.status) +\n              '<div class=\"row\"><span class=\"sub\">' + h.hours + ' / ' + h.limit + ' 時間（' + pct(h.ratio) + '）' +\n              (h.confirmed ? '' : ' ・上限は暫定') + '</span>' +\n              '<span class=\"sub\">' + h.days + '日 ' + yen(h.amount) + '</span></div>' +\n              '</div>';\n          });\n        }\n        html += card(\n          '今月（' + d.yearMonth + '）の労働時間　上限の' + d.warnPercent + '%で注意・' + d.alertPercent + '%で警告',\n          hoursHtml\n        );\n\n        var listHtml = '';\n        if (!d.recentEntries.length) {\n          listHtml = '<div class=\"empty\">まだ取り込まれた勤務がありません</div>';\n        } else {\n          listHtml = '<ul class=\"list\">';\n          d.recentEntries.forEach(function (e) {\n            listHtml +=\n              '<li><div class=\"row\"><span>' + esc(e.date.slice(5)) + ' ' + esc(e.companyName) + (e.reconciled ? ' <span class=\"sub\">照合済</span>' : '') + '</span>' +\n              '<span class=\"v strong\">' + yen(e.amount) + '</span></div>' +\n              '<div class=\"sub\">' + esc(e.startTime) + '-' + esc(e.endTime) + ' ／ ' + e.workedHours + '時間</div></li>';\n          });\n          listHtml += '</ul>';\n        }\n        html += card('直近の勤務', listHtml);\n\n        el('view-home').innerHTML = html;\n      }\n\n      /* ---------- 収入 ---------- */\n      function renderIncome() {\n        var a = DATA.annual;\n        var html = '';\n\n        html += card(\n          '年間収入（額面）の内訳　※源泉徴収前の総支給額',\n          row('給与収入（カレンダー）', yen(a.calendarRevenue)) +\n            row('給与収入（手入力）', yen(a.manualSalaryRevenue)) +\n            row('事業収入', yen(a.businessRevenue)) +\n            row('雑収入', yen(a.miscRevenue)) +\n            '<div class=\"divider\"></div>' +\n            row('合計（壁の判定に使用）', yen(a.totalRevenue), true)\n        );\n\n        html += card(\n          '合計所得金額　※収入額とは別の数値。税金の壁の判定に使う',\n          row('給与所得', yen(a.salaryIncome)) +\n            '<div class=\"sub\">給与収入 ' + yen(a.salaryRevenue) + ' − 給与所得控除 ' + yen(a.salaryDeduction) + '</div>' +\n            row('事業所得', yen(a.businessIncome)) +\n            '<div class=\"sub\">事業収入 ' + yen(a.businessRevenue) + ' − 必要経費 ' + yen(a.businessExpenses) + '</div>' +\n            row('雑所得', yen(a.miscIncome)) +\n            '<div class=\"divider\"></div>' +\n            row('合計所得金額', yen(a.totalIncome), true)\n        );\n\n        var manualHtml = '';\n        if (!DATA.manualEntries.length) {\n          manualHtml = '<div class=\"empty\">未登録です。業務委託分などをここに登録してください</div>';\n        } else {\n          manualHtml = '<ul class=\"list\">';\n          DATA.manualEntries.forEach(function (m) {\n            manualHtml +=\n              '<li><div class=\"row\"><span>' + esc(m.sourceName) + '</span><span class=\"v strong\">' + yen(m.amount) + '</span></div>' +\n              '<div class=\"sub\">' + esc(m.category) + ' ／ ' + esc(m.period) +\n              (m.expenses ? ' ／ 経費 ' + yen(m.expenses) : '') + '</div></li>';\n          });\n          manualHtml += '</ul>';\n        }\n        html += card('カレンダー外の収入（手入力）', manualHtml);\n\n        var options = DATA.categories.map(function (c) {\n          return '<option value=\"' + esc(c) + '\"' + (c === '事業所得' ? ' selected' : '') + '>' + esc(c) + '</option>';\n        }).join('');\n        html += card(\n          '収入を追加',\n          '<label for=\"mi-name\">収入元</label><input id=\"mi-name\" placeholder=\"例: 〇〇業務委託\" />' +\n            '<label for=\"mi-cat\">区分</label><select id=\"mi-cat\">' + options + '</select>' +\n            '<label for=\"mi-period\">対象期間（年が分かる形で）</label><input id=\"mi-period\" placeholder=\"例: 2026-03〜2026-05\" />' +\n            '<label for=\"mi-amount\">金額（額面・円）</label><input id=\"mi-amount\" type=\"number\" inputmode=\"numeric\" />' +\n            '<label for=\"mi-exp\">必要経費（円）</label><input id=\"mi-exp\" type=\"number\" inputmode=\"numeric\" value=\"0\" />' +\n            '<button class=\"primary\" id=\"mi-save\">登録する</button>'\n        );\n\n        el('view-income').innerHTML = html;\n        el('mi-save').addEventListener('click', function () {\n          call('appAddManualIncome', {\n            sourceName: el('mi-name').value,\n            category: el('mi-cat').value,\n            period: el('mi-period').value,\n            amount: el('mi-amount').value,\n            expenses: el('mi-exp').value\n          }, function (res) { toast(res.message); });\n        });\n      }\n\n      /* ---------- 見込み ---------- */\n      function renderForecast() {\n        var f = DATA.forecast || {};\n        var html = '';\n\n        if (!f.available) {\n          el('view-forecast').innerHTML = card('この先の見込み', '<div class=\"empty\">' + esc(f.reason || 'まだ取得できていません') + '</div>');\n          return;\n        }\n\n        html += card(\n          'この先' + f.days + '日の予定（' + esc(f.from) + ' 〜 ' + esc(f.to) + '）',\n          '<div class=\"big\">' + f.plannedCount + '件 / ' + f.plannedHours + '時間</div>' +\n            '<div class=\"sub\">予定分の収入 ' + yen(f.plannedRevenue) + '</div>'\n        );\n\n        var adviceHtml = '';\n        if (!f.advice.length) {\n          adviceHtml = '<div class=\"empty\">特にありません</div>';\n        } else {\n          f.advice.forEach(function (a) {\n            adviceHtml +=\n              '<div class=\"advice a-' + esc(a.level) + '\"><span class=\"badge s-' + esc(a.level) + '\">' + esc(a.level) +\n              '</span><div>' + esc(a.text) + '</div></div>';\n          });\n        }\n        html += card('勤務調整のアドバイス', adviceHtml);\n\n        var monthsHtml = '';\n        if (!f.months.length) {\n          monthsHtml = '<div class=\"empty\">この先の勤務予定はありません</div>';\n        } else {\n          f.months.forEach(function (m) {\n            monthsHtml +=\n              '<div style=\"margin-bottom:14px\">' +\n              '<div class=\"row\"><h3>' + esc(m.companyName) + '<span class=\"sub\">　' + esc(m.yearMonth) + '</span></h3>' +\n              '<span class=\"badge s-' + esc(m.status) + '\">' + esc(m.status) + '</span></div>' +\n              bar(m.ratio, m.status) +\n              '<div class=\"row\"><span class=\"sub\">実績 ' + m.actualHours + 'h ＋ 予定 ' + m.plannedHours + 'h ＝ ' +\n              '<b>' + m.projectedHours + 'h</b> / ' + m.limit + 'h</span>' +\n              '<span class=\"sub\">' + (m.overHours > 0 ? m.overHours + 'h 超過' : '余裕 ' + m.remainingHours + 'h') + '</span></div>' +\n              '</div>';\n          });\n        }\n        html += card('月間労働時間の見込み', monthsHtml);\n\n        var wallHtml = '';\n        f.walls.forEach(function (w) {\n          wallHtml +=\n            '<div style=\"margin-bottom:14px\">' +\n            '<div class=\"row\"><h3>' + esc(w.name) + '</h3><span class=\"badge s-' + esc(w.status) + '\">' + esc(w.status) + '</span></div>' +\n            bar(w.ratio, w.status) +\n            '<div class=\"row\"><span class=\"sub\">予定を全部こなすと ' + yen(w.projectedRevenue) + '</span>' +\n            '<span class=\"sub\">' + (w.remaining < 0 ? yen(-w.remaining) + ' 超過' : '残り ' + yen(w.remaining)) + '</span></div>' +\n            '</div>';\n        });\n        html += card('予定を全部こなした場合の壁', wallHtml);\n\n        if (f.pace && f.pace.available) {\n          html += card(\n            '年末の着地（目安・カレンダー分のみ）',\n            row('直近' + f.pace.months + 'ヶ月の平均', yen(f.pace.monthlyAverage) + ' / 月') +\n              row('年末までの残り', f.pace.remainingMonths + 'ヶ月') +\n              row('年末見込み', yen(f.pace.yearEndEstimate), true) +\n              (f.pace.reach\n                ? '<div class=\"sub\" style=\"margin-top:8px\">このペースだと ' + esc(f.pace.reach.wallName) + ' の壁に ' + esc(f.pace.reach.yearMonth) + ' ごろ到達します。</div>'\n                : '')\n          );\n        }\n\n        el('view-forecast').innerHTML = html;\n      }\n\n      /* ---------- 照合 ---------- */\n      function renderReconcile() {\n        var form = DATA.reconcileForm;\n        var monthOpts = form.months.map(function (m) { return '<option>' + esc(m) + '</option>'; }).join('');\n        var compOpts = form.companies.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');\n\n        var html = card(\n          '月次の答え合わせ',\n          '<div class=\"sub\">給与明細・支給照会の合計額（額面）を入れると、カレンダーからの推定額との差を確認できます。</div>' +\n            '<label for=\"rc-month\">対象月</label><select id=\"rc-month\">' + monthOpts + '</select>' +\n            '<label for=\"rc-company\">勤務先</label><select id=\"rc-company\">' + compOpts + '</select>' +\n            '<div class=\"divider\"></div>' +\n            '<div class=\"row\"><span class=\"k\">カレンダー推定額</span><span class=\"v big\" id=\"rc-est\" style=\"font-size:22px\">-</span></div>' +\n            '<label for=\"rc-actual\">実際の支給額（額面・円）</label><input id=\"rc-actual\" type=\"number\" inputmode=\"numeric\" />' +\n            '<label for=\"rc-note\">メモ（任意）</label><input id=\"rc-note\" placeholder=\"交通費込み など\" />' +\n            '<button class=\"primary\" id=\"rc-save\">保存して差分を見る</button>'\n        );\n\n        var histHtml = '';\n        if (!DATA.reconcileEntries.length) {\n          histHtml = '<div class=\"empty\">まだ入力がありません</div>';\n        } else {\n          histHtml = '<ul class=\"list\">';\n          DATA.reconcileEntries.forEach(function (r) {\n            histHtml +=\n              '<li><div class=\"row\"><span>' + esc(r.yearMonth) + ' ' + esc(r.companyName) + '</span>' +\n              '<span class=\"badge s-' + esc(r.status) + '\">' + esc(r.status) + '</span></div>' +\n              '<div class=\"sub\">推定 ' + yen(r.estimated) + ' ／ 実額 ' + yen(r.actual) + ' ／ 差分 ' + yen(r.diff) + '</div></li>';\n          });\n          histHtml += '</ul>';\n        }\n        html += card('履歴', histHtml);\n\n        el('view-reconcile').innerHTML = html;\n\n        function updateEstimate() {\n          var key = el('rc-month').value + '\\t' + el('rc-company').value;\n          var v = form.estimates[key];\n          el('rc-est').textContent = v === undefined ? '-' : yen(v);\n        }\n        el('rc-month').addEventListener('change', updateEstimate);\n        el('rc-company').addEventListener('change', updateEstimate);\n        updateEstimate();\n\n        el('rc-save').addEventListener('click', function () {\n          if (el('rc-actual').value === '') { toast('実際の支給額を入力してください'); return; }\n          call('appSaveReconciliation', {\n            yearMonth: el('rc-month').value,\n            companyName: el('rc-company').value,\n            actualAmount: el('rc-actual').value,\n            note: el('rc-note').value\n          }, function (res) { toast(res.result.message); });\n        });\n      }\n\n      /* ---------- 設定 ---------- */\n      function renderSettings() {\n        var html = '';\n        var limitsHtml = '';\n        if (!DATA.limits.length) {\n          limitsHtml = '<div class=\"empty\">勤務先はカレンダーの取り込み時に自動登録されます</div>';\n        } else {\n          DATA.limits.forEach(function (l, i) {\n            limitsHtml +=\n              '<div style=\"margin-bottom:16px\">' +\n              '<div class=\"row\"><h3>' + esc(l.companyName) + '</h3>' +\n              '<span class=\"badge s-' + (l.confirmed ? '正常\">確定' : '注意\">暫定') + '</span></div>' +\n              '<div class=\"inline\" style=\"margin-top:8px\">' +\n              '<input type=\"number\" inputmode=\"numeric\" id=\"lim-' + i + '\" value=\"' + l.limit + '\" />' +\n              '<span class=\"sub\">時間/月</span>' +\n              '<button class=\"small\" data-limit=\"' + i + '\">保存</button></div>' +\n              '<label class=\"check\"><input type=\"checkbox\" id=\"cfm-' + i + '\"' + (l.confirmed ? ' checked' : '') + ' />会社から正式な回答をもらった</label>' +\n              '</div>';\n          });\n        }\n        html += card(\n          '勤務先ごとの月間上限（4分の3基準）',\n          '<div class=\"sub\" style=\"margin-bottom:12px\">正社員の所定労働時間の回答が来たら、暫定値' +\n            DATA.defaultMonthlyLimit + '時間を実数に差し替えてください。</div>' + limitsHtml\n        );\n\n        html += card(\n          'カレンダーの取り込み',\n          '<div class=\"sub\">毎日23:30に自動で取り込まれます。手動で取り込みたいときはこちら。</div>' +\n            '<button class=\"primary\" id=\"run-today\">今日の分を取り込む</button>' +\n            '<label for=\"imp-date\">日付を指定して取り込み直す</label>' +\n            '<div class=\"inline\"><input id=\"imp-date\" placeholder=\"2026-08-20\" /><button class=\"small\" id=\"imp-run\">実行</button></div>'\n        );\n\n        html += card(\n          'データ',\n          '<div class=\"sub\">明細の修正や過去データの一括編集はスプレッドシートから行えます。</div>' +\n            '<div style=\"margin-top:10px\"><a href=\"' + esc(DATA.spreadsheetUrl) + '\" target=\"_blank\" rel=\"noopener\">スプレッドシートを開く</a></div>' +\n            '<div class=\"sub\" style=\"margin-top:10px\">最終更新 ' + esc(DATA.generatedAt) + '</div>'\n        );\n\n        el('view-settings').innerHTML = html;\n\n        Array.prototype.forEach.call(document.querySelectorAll('[data-limit]'), function (btn) {\n          btn.addEventListener('click', function () {\n            var i = btn.getAttribute('data-limit');\n            call('appSaveCompanyLimit', {\n              companyName: DATA.limits[i].companyName,\n              limit: el('lim-' + i).value,\n              confirmed: el('cfm-' + i).checked\n            }, function (res) { toast(res.message); });\n          });\n        });\n        el('run-today').addEventListener('click', function () {\n          call('appRunToday', undefined, function () { toast('今日の予定を取り込みました'); });\n        });\n        el('imp-run').addEventListener('click', function () {\n          call('appImportDate', el('imp-date').value, function (res) {\n            toast(res.message);\n            if (res.errors && res.errors.length) toast(res.errors[0]);\n          });\n        });\n      }\n\n      /* ---------- 描画 ---------- */\n      function render() {\n        if (DATA.error) {\n          el('view-home').innerHTML = card('エラー', '<div class=\"sub\">' + esc(DATA.error) + '</div>');\n          el('updated').textContent = '';\n          el('disclaimer').textContent = DATA.disclaimer || '';\n          return;\n        }\n        el('updated').textContent = DATA.generatedAt + '　' + DATA.level;\n        el('disclaimer').textContent = DATA.disclaimer;\n        renderHome();\n        renderIncome();\n        renderForecast();\n        renderReconcile();\n        renderSettings();\n      }\n\n      Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (btn) {\n        btn.addEventListener('click', function () {\n          CURRENT = btn.getAttribute('data-view');\n          Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {\n            b.classList.toggle('active', b === btn);\n          });\n          Array.prototype.forEach.call(document.querySelectorAll('.view'), function (v) {\n            v.classList.toggle('active', v.id === 'view-' + CURRENT);\n          });\n          window.scrollTo(0, 0);\n        });\n      });\n\n      el('reload').addEventListener('click', function () {\n        call('appRefresh', undefined, function () { toast('最新の状態にしました'); });\n      });\n\n      render();\n    </script>\n  </body>\n</html>\n";
+INLINE_HTML["App"] = "<!DOCTYPE html>\n<html lang=\"ja\">\n  <head>\n    <base target=\"_top\" />\n    <style>\n      :root {\n        --bg: #f4f5f7;\n        --card: #ffffff;\n        --line: #e3e5e8;\n        --text: #1c1f24;\n        --muted: #6b7280;\n        --accent: #1a73e8;\n        --ok: #1e8e3e;\n        --warn: #e8710a;\n        --alert: #d93025;\n        --ok-bg: #e6f4ea;\n        --warn-bg: #fef3e2;\n        --alert-bg: #fce8e6;\n      }\n      @media (prefers-color-scheme: dark) {\n        :root {\n          --bg: #15181c;\n          --card: #1f2328;\n          --line: #2f343a;\n          --text: #e8eaed;\n          --muted: #9aa0a6;\n          --accent: #8ab4f8;\n          --ok: #81c995;\n          --warn: #fdd663;\n          --alert: #f28b82;\n          --ok-bg: #1e3226;\n          --warn-bg: #3a3020;\n          --alert-bg: #3d2220;\n        }\n      }\n      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }\n      body {\n        margin: 0;\n        padding: 0 0 88px;\n        background: var(--bg);\n        color: var(--text);\n        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans',\n          'Noto Sans JP', 'Yu Gothic', sans-serif;\n        font-size: 15px;\n        line-height: 1.6;\n        -webkit-font-smoothing: antialiased;\n      }\n      header {\n        position: sticky; top: 0; z-index: 10;\n        background: var(--card); border-bottom: 1px solid var(--line);\n        padding: 12px 16px calc(12px + env(safe-area-inset-top));\n        display: flex; align-items: center; gap: 10px;\n      }\n      header h1 { font-size: 17px; margin: 0; flex: 1; }\n      header .updated { font-size: 11px; color: var(--muted); font-weight: normal; display: block; }\n      .icon-btn {\n        border: 1px solid var(--line); background: transparent; color: var(--text);\n        border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;\n      }\n      main { padding: 12px 12px 0; max-width: 620px; margin: 0 auto; }\n      .view { display: none; }\n      .view.active { display: block; }\n\n      .card {\n        background: var(--card); border: 1px solid var(--line);\n        border-radius: 14px; padding: 14px 16px; margin-bottom: 12px;\n      }\n      .card h2 { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; letter-spacing: .04em; }\n      .card h3 { font-size: 15px; margin: 0 0 2px; }\n\n      .badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 999px; }\n      .s-正常 { color: var(--ok); background: var(--ok-bg); }\n      .s-注意 { color: var(--warn); background: var(--warn-bg); }\n      .s-警告, .s-要確認 { color: var(--alert); background: var(--alert-bg); }\n      .s-OK { color: var(--ok); background: var(--ok-bg); }\n\n      .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }\n      .big.neg { color: var(--alert); }\n      .sub { font-size: 12px; color: var(--muted); }\n      .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }\n      .row + .row { margin-top: 6px; }\n      .row .k { color: var(--muted); font-size: 13px; }\n      .row .v { font-variant-numeric: tabular-nums; }\n      .strong { font-weight: 700; }\n      .divider { border-top: 1px solid var(--line); margin: 10px 0; }\n\n      .bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 10px 0 6px; }\n      .bar > i { display: block; height: 100%; border-radius: 999px; }\n      .f-正常 { background: var(--ok); }\n      .f-注意 { background: var(--warn); }\n      .f-警告 { background: var(--alert); }\n\n      ul.list { list-style: none; margin: 0; padding: 0; }\n      ul.list li { padding: 9px 0; border-top: 1px solid var(--line); }\n      ul.list li:first-child { border-top: 0; }\n      .muted { color: var(--muted); }\n      .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }\n\n      label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }\n      input, select, textarea {\n        width: 100%; padding: 10px 12px; font-size: 16px; color: var(--text);\n        background: var(--bg); border: 1px solid var(--line); border-radius: 10px;\n        font-family: inherit;\n      }\n      button.primary {\n        width: 100%; margin-top: 14px; padding: 12px; font-size: 15px; font-weight: 600;\n        border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer;\n      }\n      button.primary:disabled { opacity: .5; }\n      button.small {\n        padding: 7px 12px; font-size: 13px; border-radius: 8px;\n        border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer;\n      }\n      .inline { display: flex; gap: 8px; align-items: center; }\n      .inline input { flex: 1; }\n      .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }\n      .check input { width: 18px; height: 18px; }\n      a { color: var(--accent); }\n\n      nav {\n        position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;\n        display: flex; background: var(--card); border-top: 1px solid var(--line);\n        padding-bottom: env(safe-area-inset-bottom);\n      }\n      nav button {\n        flex: 1; border: 0; background: transparent; color: var(--muted);\n        padding: 9px 0 11px; font-size: 11px; cursor: pointer; font-family: inherit;\n      }\n      nav button .ico { display: block; font-size: 19px; line-height: 1.3; }\n      nav button.active { color: var(--accent); font-weight: 700; }\n\n      #toast {\n        position: fixed; left: 50%; bottom: 78px; transform: translateX(-50%);\n        background: #202124; color: #fff; padding: 10px 18px; border-radius: 10px;\n        font-size: 13px; max-width: 88%; z-index: 40; display: none; box-shadow: 0 4px 16px rgba(0,0,0,.3);\n      }\n      #busy {\n        position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 50;\n        display: none; align-items: center; justify-content: center;\n      }\n      #busy div { background: var(--card); padding: 14px 22px; border-radius: 12px; font-size: 14px; }\n      .advice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }\n      .advice:first-child { border-top: 0; }\n      .advice .badge { flex: 0 0 auto; }\n      .s-情報 { color: var(--muted); background: var(--line); }\n      .disclaimer {\n        font-size: 11px; color: var(--muted); line-height: 1.6;\n        border-top: 1px solid var(--line); padding: 12px 4px 20px; margin-top: 6px;\n      }\n    </style>\n  </head>\n  <body>\n    <header>\n      <h1>年収の壁 <span class=\"updated\" id=\"updated\">読み込み中…</span></h1>\n      <button class=\"icon-btn\" id=\"reload\">更新</button>\n    </header>\n\n    <main>\n      <section class=\"view active\" id=\"view-home\"></section>\n      <section class=\"view\" id=\"view-income\"></section>\n      <section class=\"view\" id=\"view-forecast\"></section>\n      <section class=\"view\" id=\"view-reconcile\"></section>\n      <section class=\"view\" id=\"view-settings\"></section>\n      <div class=\"disclaimer\" id=\"disclaimer\"></div>\n    </main>\n\n    <nav>\n      <button data-view=\"home\" class=\"active\"><span class=\"ico\">🏠</span>ホーム</button>\n      <button data-view=\"income\"><span class=\"ico\">💴</span>収入</button>\n      <button data-view=\"forecast\"><span class=\"ico\">📅</span>見込み</button>\n      <button data-view=\"reconcile\"><span class=\"ico\">✅</span>照合</button>\n      <button data-view=\"settings\"><span class=\"ico\">⚙️</span>設定</button>\n    </nav>\n\n    <div id=\"toast\"></div>\n    <div id=\"busy\"><div>処理中…</div></div>\n\n    <script>\n      // 下のスクリプトが壊れても白い「読み込み中…」のまま放置しないための保険。\n      // 別の script ブロックに置くことで、後続ブロックの構文エラーも拾える。\n      window.addEventListener('error', function (event) {\n        var updated = document.getElementById('updated');\n        if (updated) updated.textContent = '表示エラー';\n        var home = document.getElementById('view-home');\n        if (home) {\n          home.innerHTML =\n            '<div class=\"card\"><h2>画面を表示できませんでした</h2><div class=\"sub\">' +\n            String(event.message || event.error || '不明なエラー') +\n            '</div><div class=\"sub\" style=\"margin-top:8px\">スプレッドシートのサマリータブからも同じ内容を確認できます。</div></div>';\n        }\n      });\n    </script>\n\n    <script>\n      // JSON はそのまま JavaScript のリテラルとして正しいので、文字列に包まず埋め込む。\n      // 文字列に包むと \\t や \\\" が JS 側で先に展開されてしまい、JSON.parse が壊れる。\n      var DATA = <?!= bootstrapJson ?>;\n      var CURRENT = 'home';\n\n      /* ---------- 小物 ---------- */\n      function esc(s) {\n        return String(s == null ? '' : s).replace(/[&<>\"']/g, function (c) {\n          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c];\n        });\n      }\n      function yen(n) {\n        var v = Math.round(Number(n) || 0);\n        var sign = v < 0 ? '-' : '';\n        return sign + Math.abs(v).toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',') + '円';\n      }\n      function pct(r) { return Math.round((Number(r) || 0) * 100) + '%'; }\n      function clamp(r) { return Math.max(0, Math.min(100, Math.round((Number(r) || 0) * 100))); }\n      function el(id) { return document.getElementById(id); }\n      function toast(msg) {\n        var t = el('toast');\n        t.textContent = msg;\n        t.style.display = 'block';\n        clearTimeout(t._timer);\n        t._timer = setTimeout(function () { t.style.display = 'none'; }, 4200);\n      }\n      function busy(on) { el('busy').style.display = on ? 'flex' : 'none'; }\n\n      function call(fnName, arg, onDone) {\n        busy(true);\n        var runner = google.script.run\n          .withSuccessHandler(function (res) {\n            busy(false);\n            if (res && res.data) DATA = res.data;\n            else if (res) DATA = res;\n            render();\n            if (onDone) onDone(res);\n            else if (res && res.message) toast(res.message);\n          })\n          .withFailureHandler(function (err) {\n            busy(false);\n            toast('エラー: ' + err.message);\n          });\n        if (arg === undefined) runner[fnName]();\n        else runner[fnName](arg);\n      }\n\n      function bar(ratio, status) {\n        return '<div class=\"bar\"><i class=\"f-' + esc(status) + '\" style=\"width:' + clamp(ratio) + '%\"></i></div>';\n      }\n      function card(title, inner) {\n        return '<div class=\"card\">' + (title ? '<h2>' + esc(title) + '</h2>' : '') + inner + '</div>';\n      }\n      function row(k, v, strong) {\n        return '<div class=\"row\"><span class=\"k\">' + esc(k) + '</span><span class=\"v' + (strong ? ' strong' : '') + '\">' + v + '</span></div>';\n      }\n\n      /* ---------- ホーム ---------- */\n      function renderHome() {\n        var d = DATA;\n        var html = '';\n\n        html += card(\n          '年間収入（額面） ' + d.targetYear + '年',\n          '<div class=\"big\">' + yen(d.annual.totalRevenue) + '</div>' +\n            '<div class=\"sub\">給与 ' + yen(d.annual.salaryRevenue) +\n            ' ／ 事業 ' + yen(d.annual.businessRevenue) +\n            ' ／ 雑 ' + yen(d.annual.miscRevenue) + '</div>'\n        );\n\n        d.walls.forEach(function (w) {\n          var over = w.remaining < 0;\n          html += card(\n            w.name + 'の壁',\n            '<div class=\"row\"><h3>' + (over ? '超過' : '残り') + '</h3><span class=\"badge s-' + esc(w.status) + '\">' + esc(w.status) + '</span></div>' +\n              '<div class=\"big' + (over ? ' neg' : '') + '\">' + yen(Math.abs(w.remaining)) + '</div>' +\n              bar(w.ratio, w.status) +\n              '<div class=\"row\"><span class=\"sub\">' + yen(w.amount) + ' のうち ' + pct(w.ratio) + '</span>' +\n              '<span class=\"sub\">更新 ' + esc(w.lastUpdated) + '</span></div>' +\n              (w.note ? '<div class=\"sub\" style=\"margin-top:6px\">' + esc(w.note) + '</div>' : '')\n          );\n        });\n\n        var hoursHtml = '';\n        if (!d.hours.length) {\n          hoursHtml = '<div class=\"empty\">今月の勤務データはまだありません</div>';\n        } else {\n          d.hours.forEach(function (h) {\n            hoursHtml +=\n              '<div style=\"margin-bottom:14px\">' +\n              '<div class=\"row\"><h3>' + esc(h.companyName) + '</h3><span class=\"badge s-' + esc(h.status) + '\">' + esc(h.status) + '</span></div>' +\n              bar(h.ratio, h.status) +\n              '<div class=\"row\"><span class=\"sub\">' + h.hours + ' / ' + h.limit + ' 時間（' + pct(h.ratio) + '）' +\n              (h.confirmed ? '' : ' ・上限は暫定') + '</span>' +\n              '<span class=\"sub\">' + h.days + '日 ' + yen(h.amount) + '</span></div>' +\n              '</div>';\n          });\n        }\n        html += card(\n          '今月（' + d.yearMonth + '）の労働時間　上限の' + d.warnPercent + '%で注意・' + d.alertPercent + '%で警告',\n          hoursHtml\n        );\n\n        var weekly = (d.weekly || []).filter(function (w) { return w.isCurrentWeek; });\n        if (weekly.length) {\n          var weeklyHtml = '';\n          weekly.forEach(function (w) {\n            weeklyHtml +=\n              '<div style=\"margin-bottom:14px\">' +\n              '<div class=\"row\"><h3>' + esc(w.companyName) + '</h3><span class=\"badge s-' + esc(w.status) + '\">' + esc(w.status) + '</span></div>' +\n              bar(w.ratio, w.status) +\n              '<div class=\"row\"><span class=\"sub\">' + w.hours + ' / ' + w.limit + ' 時間（' + pct(w.ratio) + '）</span>' +\n              '<span class=\"sub\">残り ' + w.remainingHours + 'h</span></div></div>';\n          });\n          html += card('今週（' + esc(weekly[0].weekStart) + ' 〜 ' + esc(weekly[0].weekEnd) + '）の労働時間', weeklyHtml);\n        }\n\n        var consecutive = (d.consecutive || []).filter(function (c) { return c.requiredMonths >= 2; });\n        if (consecutive.length) {\n          var conHtml = '';\n          consecutive.forEach(function (c) {\n            conHtml +=\n              '<div style=\"margin-bottom:14px\">' +\n              '<div class=\"row\"><h3>' + esc(c.companyName) + '</h3><span class=\"badge s-' + esc(c.status) + '\">' + esc(c.status) + '</span></div>' +\n              '<div class=\"sub\">条件：月' + c.limit + '時間以上が' + c.requiredMonths + 'ヶ月連続</div>' +\n              '<div class=\"sub\">' + c.months.map(function (m) {\n                return esc(m.yearMonth) + ' ' + m.hours + 'h' + (m.over ? '（超）' : '');\n              }).join('　/　') + '</div>' +\n              (c.message ? '<div class=\"sub\" style=\"margin-top:6px\">' + esc(c.message) + '</div>' : '') +\n              '</div>';\n          });\n          html += card('連続月の判定', conHtml);\n        }\n\n        var listHtml = '';\n        if (!d.recentEntries.length) {\n          listHtml = '<div class=\"empty\">まだ取り込まれた勤務がありません</div>';\n        } else {\n          listHtml = '<ul class=\"list\">';\n          d.recentEntries.forEach(function (e) {\n            listHtml +=\n              '<li><div class=\"row\"><span>' + esc(e.date.slice(5)) + ' ' + esc(e.companyName) + (e.reconciled ? ' <span class=\"sub\">照合済</span>' : '') + '</span>' +\n              '<span class=\"v strong\">' + yen(e.amount) + '</span></div>' +\n              '<div class=\"sub\">' + esc(e.startTime) + '-' + esc(e.endTime) + ' ／ ' + e.workedHours + '時間</div></li>';\n          });\n          listHtml += '</ul>';\n        }\n        html += card('直近の勤務', listHtml);\n\n        el('view-home').innerHTML = html;\n      }\n\n      /* ---------- 収入 ---------- */\n      function renderIncome() {\n        var a = DATA.annual;\n        var html = '';\n\n        html += card(\n          '年間収入（額面）の内訳　※源泉徴収前の総支給額',\n          row('給与収入（カレンダー）', yen(a.calendarRevenue)) +\n            row('給与収入（手入力）', yen(a.manualSalaryRevenue)) +\n            row('事業収入', yen(a.businessRevenue)) +\n            row('雑収入', yen(a.miscRevenue)) +\n            '<div class=\"divider\"></div>' +\n            row('合計（壁の判定に使用）', yen(a.totalRevenue), true)\n        );\n\n        html += card(\n          '合計所得金額　※収入額とは別の数値。税金の壁の判定に使う',\n          row('給与所得', yen(a.salaryIncome)) +\n            '<div class=\"sub\">給与収入 ' + yen(a.salaryRevenue) + ' − 給与所得控除 ' + yen(a.salaryDeduction) + '</div>' +\n            row('事業所得', yen(a.businessIncome)) +\n            '<div class=\"sub\">事業収入 ' + yen(a.businessRevenue) + ' − 必要経費 ' + yen(a.businessExpenses) + '</div>' +\n            row('雑所得', yen(a.miscIncome)) +\n            '<div class=\"divider\"></div>' +\n            row('合計所得金額', yen(a.totalIncome), true)\n        );\n\n        var manualHtml = '';\n        if (!DATA.manualEntries.length) {\n          manualHtml = '<div class=\"empty\">未登録です。業務委託分などをここに登録してください</div>';\n        } else {\n          manualHtml = '<ul class=\"list\">';\n          DATA.manualEntries.forEach(function (m) {\n            manualHtml +=\n              '<li><div class=\"row\"><span>' + esc(m.sourceName) + '</span><span class=\"v strong\">' + yen(m.amount) + '</span></div>' +\n              '<div class=\"sub\">' + esc(m.category) + ' ／ ' + esc(m.period) +\n              (m.expenses ? ' ／ 経費 ' + yen(m.expenses) : '') + '</div></li>';\n          });\n          manualHtml += '</ul>';\n        }\n        html += card('カレンダー外の収入（手入力）', manualHtml);\n\n        var options = DATA.categories.map(function (c) {\n          return '<option value=\"' + esc(c) + '\"' + (c === '事業所得' ? ' selected' : '') + '>' + esc(c) + '</option>';\n        }).join('');\n        html += card(\n          '収入を追加',\n          '<label for=\"mi-name\">収入元</label><input id=\"mi-name\" placeholder=\"例: 〇〇業務委託\" />' +\n            '<label for=\"mi-cat\">区分</label><select id=\"mi-cat\">' + options + '</select>' +\n            '<label for=\"mi-period\">対象期間（年が分かる形で）</label><input id=\"mi-period\" placeholder=\"例: 2026-03〜2026-05\" />' +\n            '<label for=\"mi-amount\">金額（額面・円）</label><input id=\"mi-amount\" type=\"number\" inputmode=\"numeric\" />' +\n            '<label for=\"mi-exp\">必要経費（円）</label><input id=\"mi-exp\" type=\"number\" inputmode=\"numeric\" value=\"0\" />' +\n            '<button class=\"primary\" id=\"mi-save\">登録する</button>'\n        );\n\n        el('view-income').innerHTML = html;\n        el('mi-save').addEventListener('click', function () {\n          call('appAddManualIncome', {\n            sourceName: el('mi-name').value,\n            category: el('mi-cat').value,\n            period: el('mi-period').value,\n            amount: el('mi-amount').value,\n            expenses: el('mi-exp').value\n          }, function (res) { toast(res.message); });\n        });\n      }\n\n      /* ---------- 見込み ---------- */\n      function renderForecast() {\n        var f = DATA.forecast || {};\n        var html = '';\n\n        if (!f.available) {\n          el('view-forecast').innerHTML = card('この先の見込み', '<div class=\"empty\">' + esc(f.reason || 'まだ取得できていません') + '</div>');\n          return;\n        }\n\n        html += card(\n          'この先' + f.days + '日の予定（' + esc(f.from) + ' 〜 ' + esc(f.to) + '）',\n          '<div class=\"big\">' + f.plannedCount + '件 / ' + f.plannedHours + '時間</div>' +\n            '<div class=\"sub\">予定分の収入 ' + yen(f.plannedRevenue) + '</div>'\n        );\n\n        var adviceHtml = '';\n        if (!f.advice.length) {\n          adviceHtml = '<div class=\"empty\">特にありません</div>';\n        } else {\n          f.advice.forEach(function (a) {\n            adviceHtml +=\n              '<div class=\"advice a-' + esc(a.level) + '\"><span class=\"badge s-' + esc(a.level) + '\">' + esc(a.level) +\n              '</span><div>' + esc(a.text) + '</div></div>';\n          });\n        }\n        html += card('勤務調整のアドバイス', adviceHtml);\n\n        var monthsHtml = '';\n        if (!f.months.length) {\n          monthsHtml = '<div class=\"empty\">この先の勤務予定はありません</div>';\n        } else {\n          f.months.forEach(function (m) {\n            monthsHtml +=\n              '<div style=\"margin-bottom:14px\">' +\n              '<div class=\"row\"><h3>' + esc(m.companyName) + '<span class=\"sub\">　' + esc(m.yearMonth) + '</span></h3>' +\n              '<span class=\"badge s-' + esc(m.status) + '\">' + esc(m.status) + '</span></div>' +\n              bar(m.ratio, m.status) +\n              '<div class=\"row\"><span class=\"sub\">実績 ' + m.actualHours + 'h ＋ 予定 ' + m.plannedHours + 'h ＝ ' +\n              '<b>' + m.projectedHours + 'h</b> / ' + m.limit + 'h</span>' +\n              '<span class=\"sub\">' + (m.overHours > 0 ? m.overHours + 'h 超過' : '余裕 ' + m.remainingHours + 'h') + '</span></div>' +\n              '</div>';\n          });\n        }\n        html += card('月間労働時間の見込み', monthsHtml);\n\n        var wallHtml = '';\n        f.walls.forEach(function (w) {\n          wallHtml +=\n            '<div style=\"margin-bottom:14px\">' +\n            '<div class=\"row\"><h3>' + esc(w.name) + '</h3><span class=\"badge s-' + esc(w.status) + '\">' + esc(w.status) + '</span></div>' +\n            bar(w.ratio, w.status) +\n            '<div class=\"row\"><span class=\"sub\">予定を全部こなすと ' + yen(w.projectedRevenue) + '</span>' +\n            '<span class=\"sub\">' + (w.remaining < 0 ? yen(-w.remaining) + ' 超過' : '残り ' + yen(w.remaining)) + '</span></div>' +\n            '</div>';\n        });\n        html += card('予定を全部こなした場合の壁', wallHtml);\n\n        if (f.pace && f.pace.available) {\n          html += card(\n            '年末の着地（目安・カレンダー分のみ）',\n            row('直近' + f.pace.months + 'ヶ月の平均', yen(f.pace.monthlyAverage) + ' / 月') +\n              row('年末までの残り', f.pace.remainingMonths + 'ヶ月') +\n              row('年末見込み', yen(f.pace.yearEndEstimate), true) +\n              (f.pace.reach\n                ? '<div class=\"sub\" style=\"margin-top:8px\">このペースだと ' + esc(f.pace.reach.wallName) + ' の壁に ' + esc(f.pace.reach.yearMonth) + ' ごろ到達します。</div>'\n                : '')\n          );\n        }\n\n        el('view-forecast').innerHTML = html;\n      }\n\n      /* ---------- 照合 ---------- */\n      function renderReconcile() {\n        var form = DATA.reconcileForm;\n        var monthOpts = form.months.map(function (m) { return '<option>' + esc(m) + '</option>'; }).join('');\n        var compOpts = form.companies.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');\n\n        var html = card(\n          '月次の答え合わせ',\n          '<div class=\"sub\">給与明細・支給照会の合計額（額面）を入れると、カレンダーからの推定額との差を確認できます。</div>' +\n            '<label for=\"rc-month\">対象月</label><select id=\"rc-month\">' + monthOpts + '</select>' +\n            '<label for=\"rc-company\">勤務先</label><select id=\"rc-company\">' + compOpts + '</select>' +\n            '<div class=\"divider\"></div>' +\n            '<div class=\"row\"><span class=\"k\">カレンダー推定額</span><span class=\"v big\" id=\"rc-est\" style=\"font-size:22px\">-</span></div>' +\n            '<label for=\"rc-actual\">実際の支給額（額面・円）</label><input id=\"rc-actual\" type=\"number\" inputmode=\"numeric\" />' +\n            '<label for=\"rc-note\">メモ（任意）</label><input id=\"rc-note\" placeholder=\"交通費込み など\" />' +\n            '<button class=\"primary\" id=\"rc-save\">保存して差分を見る</button>'\n        );\n\n        var histHtml = '';\n        if (!DATA.reconcileEntries.length) {\n          histHtml = '<div class=\"empty\">まだ入力がありません</div>';\n        } else {\n          histHtml = '<ul class=\"list\">';\n          DATA.reconcileEntries.forEach(function (r) {\n            histHtml +=\n              '<li><div class=\"row\"><span>' + esc(r.yearMonth) + ' ' + esc(r.companyName) + '</span>' +\n              '<span class=\"badge s-' + esc(r.status) + '\">' + esc(r.status) + '</span></div>' +\n              '<div class=\"sub\">推定 ' + yen(r.estimated) + ' ／ 実額 ' + yen(r.actual) + ' ／ 差分 ' + yen(r.diff) + '</div></li>';\n          });\n          histHtml += '</ul>';\n        }\n        html += card('履歴', histHtml);\n\n        el('view-reconcile').innerHTML = html;\n\n        function updateEstimate() {\n          var key = el('rc-month').value + '\\t' + el('rc-company').value;\n          var v = form.estimates[key];\n          el('rc-est').textContent = v === undefined ? '-' : yen(v);\n        }\n        el('rc-month').addEventListener('change', updateEstimate);\n        el('rc-company').addEventListener('change', updateEstimate);\n        updateEstimate();\n\n        el('rc-save').addEventListener('click', function () {\n          if (el('rc-actual').value === '') { toast('実際の支給額を入力してください'); return; }\n          call('appSaveReconciliation', {\n            yearMonth: el('rc-month').value,\n            companyName: el('rc-company').value,\n            actualAmount: el('rc-actual').value,\n            note: el('rc-note').value\n          }, function (res) { toast(res.result.message); });\n        });\n      }\n\n      /* ---------- 設定 ---------- */\n      function renderSettings() {\n        var html = '';\n        var limitsHtml = '';\n        if (!DATA.limits.length) {\n          limitsHtml = '<div class=\"empty\">勤務先はカレンダーの取り込み時に自動登録されます</div>';\n        } else {\n          DATA.limits.forEach(function (l, i) {\n            limitsHtml +=\n              '<div style=\"margin-bottom:16px\">' +\n              '<div class=\"row\"><h3>' + esc(l.companyName) + '</h3>' +\n              '<span class=\"badge s-' + (l.confirmed ? '正常\">確定' : '注意\">暫定') + '</span></div>' +\n              '<div class=\"inline\" style=\"margin-top:8px\">' +\n              '<input type=\"number\" inputmode=\"numeric\" id=\"lim-' + i + '\" value=\"' + l.limit + '\" />' +\n              '<span class=\"sub\">時間/月</span></div>' +\n              '<div class=\"inline\" style=\"margin-top:6px\">' +\n              '<input type=\"number\" inputmode=\"numeric\" id=\"wk-' + i + '\" value=\"' + (l.weeklyLimit || '') + '\" placeholder=\"未設定\" />' +\n              '<span class=\"sub\">時間/週</span></div>' +\n              '<div class=\"inline\" style=\"margin-top:6px\">' +\n              '<input type=\"number\" inputmode=\"numeric\" id=\"con-' + i + '\" value=\"' + (l.consecutiveMonths || 1) + '\" />' +\n              '<span class=\"sub\">ヶ月連続で判定</span>' +\n              '<button class=\"small\" data-limit=\"' + i + '\">保存</button></div>' +\n              '<label class=\"check\"><input type=\"checkbox\" id=\"cfm-' + i + '\"' + (l.confirmed ? ' checked' : '') + ' />会社から正式な回答をもらった</label>' +\n              (l.basis ? '<div class=\"sub\" style=\"margin-top:6px\">根拠：' + esc(l.basis) + '</div>' : '') +\n              '</div>';\n          });\n        }\n        html += card(\n          '勤務先ごとの月間上限（4分の3基準）',\n          '<div class=\"sub\" style=\"margin-bottom:12px\">正社員の所定労働時間の回答が来たら、暫定値' +\n            DATA.defaultMonthlyLimit + '時間を実数に差し替えてください。' +\n            '週の上限は「正社員の週所定労働時間の4分の3」が示された場合に入れます（未設定なら判定しません）。' +\n            '連続月数は「月◯時間以上が◯ヶ月連続で対象」と言われた場合にその月数を入れます（通常は1）。</div>' + limitsHtml\n        );\n\n        html += card(\n          'カレンダーの取り込み',\n          '<div class=\"sub\">毎日23:30に自動で取り込まれます。手動で取り込みたいときはこちら。</div>' +\n            '<button class=\"primary\" id=\"run-today\">今日の分を取り込む</button>' +\n            '<label for=\"imp-date\">日付を指定して取り込み直す</label>' +\n            '<div class=\"inline\"><input id=\"imp-date\" placeholder=\"2026-08-20\" /><button class=\"small\" id=\"imp-run\">実行</button></div>'\n        );\n\n        html += card(\n          'データ',\n          '<div class=\"sub\">明細の修正や過去データの一括編集はスプレッドシートから行えます。</div>' +\n            '<div style=\"margin-top:10px\"><a href=\"' + esc(DATA.spreadsheetUrl) + '\" target=\"_blank\" rel=\"noopener\">スプレッドシートを開く</a></div>' +\n            '<div class=\"sub\" style=\"margin-top:10px\">最終更新 ' + esc(DATA.generatedAt) + '</div>'\n        );\n\n        el('view-settings').innerHTML = html;\n\n        Array.prototype.forEach.call(document.querySelectorAll('[data-limit]'), function (btn) {\n          btn.addEventListener('click', function () {\n            var i = btn.getAttribute('data-limit');\n            call('appSaveCompanyLimit', {\n              companyName: DATA.limits[i].companyName,\n              limit: el('lim-' + i).value,\n              weeklyLimit: el('wk-' + i).value,\n              consecutiveMonths: el('con-' + i).value,\n              confirmed: el('cfm-' + i).checked\n            }, function (res) { toast(res.message); });\n          });\n        });\n        el('run-today').addEventListener('click', function () {\n          call('appRunToday', undefined, function () { toast('今日の予定を取り込みました'); });\n        });\n        el('imp-run').addEventListener('click', function () {\n          call('appImportDate', el('imp-date').value, function (res) {\n            toast(res.message);\n            if (res.errors && res.errors.length) toast(res.errors[0]);\n          });\n        });\n      }\n\n      /* ---------- 描画 ---------- */\n      function render() {\n        if (DATA.error) {\n          el('view-home').innerHTML = card('エラー', '<div class=\"sub\">' + esc(DATA.error) + '</div>');\n          el('updated').textContent = '';\n          el('disclaimer').textContent = DATA.disclaimer || '';\n          return;\n        }\n        el('updated').textContent = DATA.generatedAt + '　' + DATA.level;\n        el('disclaimer').textContent = DATA.disclaimer;\n        renderHome();\n        renderIncome();\n        renderForecast();\n        renderReconcile();\n        renderSettings();\n      }\n\n      Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (btn) {\n        btn.addEventListener('click', function () {\n          CURRENT = btn.getAttribute('data-view');\n          Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {\n            b.classList.toggle('active', b === btn);\n          });\n          Array.prototype.forEach.call(document.querySelectorAll('.view'), function (v) {\n            v.classList.toggle('active', v.id === 'view-' + CURRENT);\n          });\n          window.scrollTo(0, 0);\n        });\n      });\n\n      el('reload').addEventListener('click', function () {\n        call('appRefresh', undefined, function () { toast('最新の状態にしました'); });\n      });\n\n      render();\n    </script>\n  </body>\n</html>\n";
 
 INLINE_HTML["Reconcile"] = "<!DOCTYPE html>\n<html>\n  <head>\n    <base target=\"_top\" />\n    <style>\n      body {\n        font-family: -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;\n        font-size: 14px;\n        color: #222;\n        margin: 16px;\n      }\n      h2 { font-size: 16px; margin: 0 0 12px; }\n      label { display: block; margin: 12px 0 4px; font-weight: bold; }\n      select, input, textarea {\n        width: 100%; box-sizing: border-box; padding: 6px 8px;\n        border: 1px solid #ccc; border-radius: 4px; font-size: 14px;\n      }\n      .estimate { background: #eceff1; padding: 10px; border-radius: 4px; margin-top: 12px; }\n      .estimate strong { font-size: 18px; }\n      button {\n        margin-top: 16px; padding: 8px 16px; font-size: 14px; border: 0; border-radius: 4px;\n        background: #1a73e8; color: #fff; cursor: pointer;\n      }\n      button:disabled { background: #9e9e9e; cursor: default; }\n      #result { margin-top: 14px; padding: 10px; border-radius: 4px; display: none; white-space: pre-wrap; }\n      .ok { background: #e8f5e9; color: #1b5e20; }\n      .ng { background: #fff3e0; color: #bf360c; }\n      .disclaimer { margin-top: 18px; font-size: 11px; color: #666; border-top: 1px solid #ddd; padding-top: 10px; }\n    </style>\n  </head>\n  <body>\n    <h2>月次の答え合わせ</h2>\n    <p style=\"margin:0;color:#555\">給与明細・支給照会の合計額（額面）を入力してください。</p>\n\n    <label for=\"month\">対象月</label>\n    <select id=\"month\"></select>\n\n    <label for=\"company\">勤務先</label>\n    <select id=\"company\"></select>\n\n    <div class=\"estimate\">\n      カレンダーからの推定額（額面）<br />\n      <strong id=\"estimate\">-</strong>\n    </div>\n\n    <label for=\"actual\">実際の支給額（額面・円）</label>\n    <input id=\"actual\" type=\"number\" inputmode=\"numeric\" step=\"1\" placeholder=\"例: 98000\" />\n\n    <label for=\"note\">メモ（任意）</label>\n    <textarea id=\"note\" rows=\"2\" placeholder=\"交通費込み など\"></textarea>\n\n    <button id=\"save\" disabled>保存して差分を確認</button>\n    <div id=\"result\"></div>\n    <div class=\"disclaimer\" id=\"disclaimer\"></div>\n\n    <script>\n      var DATA = null;\n\n      function yen(n) {\n        return Math.round(n).toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',') + '円';\n      }\n\n      function fillSelect(el, values) {\n        el.innerHTML = '';\n        values.forEach(function (v) {\n          var opt = document.createElement('option');\n          opt.value = v;\n          opt.textContent = v;\n          el.appendChild(opt);\n        });\n      }\n\n      function updateEstimate() {\n        if (!DATA) return;\n        var key = document.getElementById('month').value + '\\t' + document.getElementById('company').value;\n        var value = DATA.estimates[key];\n        document.getElementById('estimate').textContent = value === undefined ? '-' : yen(value);\n      }\n\n      function onData(data) {\n        DATA = data;\n        fillSelect(document.getElementById('month'), data.months);\n        fillSelect(document.getElementById('company'), data.companies);\n        document.getElementById('disclaimer').textContent = data.disclaimer;\n        document.getElementById('save').disabled = false;\n        updateEstimate();\n      }\n\n      function onSaved(res) {\n        var el = document.getElementById('result');\n        el.style.display = 'block';\n        el.className = res.status === 'OK' ? 'ok' : 'ng';\n        el.textContent =\n          '推定額 ' + yen(res.estimated) + '\\n実額 ' + yen(res.actual) + '\\n差分 ' + yen(res.diff) + '\\n\\n' + res.message;\n        document.getElementById('save').disabled = false;\n        updateEstimate();\n      }\n\n      function onError(err) {\n        var el = document.getElementById('result');\n        el.style.display = 'block';\n        el.className = 'ng';\n        el.textContent = 'エラー: ' + err.message;\n        document.getElementById('save').disabled = false;\n      }\n\n      document.getElementById('month').addEventListener('change', updateEstimate);\n      document.getElementById('company').addEventListener('change', updateEstimate);\n      document.getElementById('save').addEventListener('click', function () {\n        var actual = document.getElementById('actual').value;\n        if (actual === '') {\n          onError({ message: '実際の支給額を入力してください' });\n          return;\n        }\n        document.getElementById('save').disabled = true;\n        google.script.run\n          .withSuccessHandler(onSaved)\n          .withFailureHandler(onError)\n          .saveReconciliation({\n            yearMonth: document.getElementById('month').value,\n            companyName: document.getElementById('company').value,\n            actualAmount: actual,\n            note: document.getElementById('note').value\n          });\n      });\n\n      google.script.run.withSuccessHandler(onData).withFailureHandler(onError).getReconcileFormData();\n    </script>\n  </body>\n</html>\n";

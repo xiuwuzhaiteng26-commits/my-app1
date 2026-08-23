@@ -123,6 +123,82 @@ function runTests() {
   );
   check('時間: 100%到達で警告', over[0].status, '警告');
 
+  /* --- 週の上限（正社員の週所定労働時間の4分の3） --- */
+  check('週の開始日: 水曜日から月曜日', weekStartOf_('2026-08-19'), '2026-08-17');
+  check('週の開始日: 月曜日はその日', weekStartOf_('2026-08-17'), '2026-08-17');
+  check('週の開始日: 日曜日は同じ週の月曜', weekStartOf_('2026-08-23'), '2026-08-17');
+
+  var weeklyLimitRows = [
+    { company_name: 'リージェンシー', monthly_hour_limit: 130, weekly_hour_limit: 30, consecutive_months: 1, confirmed: true },
+    { company_name: 'Kakedas', monthly_hour_limit: 120, weekly_hour_limit: 0, consecutive_months: 1, confirmed: false }
+  ];
+  var weeklyRows = [
+    { date: '2026-08-17', company_name: 'リージェンシー', worked_hours: 8, estimated_amount: 0 },
+    { date: '2026-08-19', company_name: 'リージェンシー', worked_hours: 8, estimated_amount: 0 },
+    { date: '2026-08-21', company_name: 'リージェンシー', worked_hours: 9, estimated_amount: 0 },
+    { date: '2026-08-21', company_name: 'Kakedas', worked_hours: 8, estimated_amount: 0 }
+  ];
+  var weekly = aggregateWeeklyHours_(weeklyRows, weeklyLimitRows, new Date(2026, 7, 21, 12, 0), 2);
+  check('週集計: 週上限のある勤務先だけ', weekly.map(function (w) { return w.companyName; }).join(','), 'リージェンシー,リージェンシー');
+  var thisWeek = weekly.filter(function (w) { return w.isCurrentWeek; })[0];
+  check('週集計: 今週の実働', [thisWeek.weekStart, thisWeek.hours, thisWeek.limit], ['2026-08-17', 25, 30]);
+  check('週集計: 80%超で注意', thisWeek.status, '注意');
+  check('週集計: 残り時間', thisWeek.remainingHours, 5);
+  var overWeek = aggregateWeeklyHours_(
+    weeklyRows.concat([{ date: '2026-08-22', company_name: 'リージェンシー', worked_hours: 6, estimated_amount: 0 }]),
+    weeklyLimitRows,
+    new Date(2026, 7, 21, 12, 0),
+    1
+  );
+  check('週集計: 上限到達で警告', [overWeek[0].hours, overWeek[0].status], [31, '警告']);
+  check('週集計: 週上限が無ければ対象外', aggregateWeeklyHours_(weeklyRows, [weeklyLimitRows[1]], new Date(2026, 7, 21), 2).length, 0);
+
+  /* --- 連続月（月◯時間以上が◯ヶ月連続） --- */
+  var beatLimits = [
+    { company_name: 'ビート', monthly_hour_limit: 80, weekly_hour_limit: 0, consecutive_months: 2, confirmed: true },
+    { company_name: 'Kakedas', monthly_hour_limit: 120, weekly_hour_limit: 0, consecutive_months: 1, confirmed: false }
+  ];
+  var quiet = evaluateConsecutiveMonths_(
+    [{ date: '2026-08-01', company_name: 'ビート', worked_hours: 40, estimated_amount: 0 }],
+    beatLimits,
+    new Date(2026, 7, 23)
+  );
+  check('連続月: 対象は連続月数2以上の勤務先だけ', quiet.length, 1);
+  check('連続月: どちらも下回れば正常', quiet[0].status, '正常');
+
+  var warned = evaluateConsecutiveMonths_(
+    [
+      { date: '2026-07-01', company_name: 'ビート', worked_hours: 85, estimated_amount: 0 },
+      { date: '2026-08-01', company_name: 'ビート', worked_hours: 40, estimated_amount: 0 }
+    ],
+    beatLimits,
+    new Date(2026, 7, 23)
+  );
+  check('連続月: 先月だけ超えていたら注意', warned[0].status, '注意');
+  check('連続月: 今月あと何時間で連続になるか示す', warned[0].message.indexOf('あと 40時間で2ヶ月連続') > 0, true);
+
+  var alerted = evaluateConsecutiveMonths_(
+    [
+      { date: '2026-07-01', company_name: 'ビート', worked_hours: 85, estimated_amount: 0 },
+      { date: '2026-08-01', company_name: 'ビート', worked_hours: 82, estimated_amount: 0 }
+    ],
+    beatLimits,
+    new Date(2026, 7, 23)
+  );
+  check('連続月: 2ヶ月連続で超えたら警告', alerted[0].status, '警告');
+  check('連続月: 実績を並べて示す', alerted[0].message.indexOf('2026-07 85h / 2026-08 82h') > 0, true);
+
+  var projected = evaluateConsecutiveMonths_(
+    [
+      { date: '2026-07-01', company_name: 'ビート', worked_hours: 85, estimated_amount: 0 },
+      { date: '2026-08-01', company_name: 'ビート', worked_hours: 60, estimated_amount: 0 }
+    ],
+    beatLimits,
+    new Date(2026, 7, 23),
+    { 'ビート\t2026-08': 25 }
+  );
+  check('連続月: 予定を足した見込みでも判定できる', projected[0].status, '警告');
+
   /* --- 月次の答え合わせ --- */
   check('答え合わせ: 誤差が小さければOK', evaluateReconciliation_(100000, 101000).status, 'OK');
   check('答え合わせ: 率も額も超えたら要確認', evaluateReconciliation_(100000, 120000).status, '要確認');

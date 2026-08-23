@@ -15,6 +15,8 @@ function buildSnapshot_(today, runInfo) {
   var annual = aggregateAnnual_(calendarRows, manualRows, targetYear);
   var walls = evaluateWalls_(wallRows, annual.totalRevenue, targetYear);
   var hours = aggregateMonthlyHours_(calendarRows, limitRows, yearMonth);
+  var weekly = aggregateWeeklyHours_(calendarRows, limitRows, today);
+  var consecutive = evaluateConsecutiveMonths_(calendarRows, limitRows, today);
   var forecast = buildForecast_(calendarRows, limitRows, walls, annual, today);
 
   var messages = [];
@@ -26,7 +28,7 @@ function buildSnapshot_(today, runInfo) {
   }
 
   var level = '正常';
-  walls.concat(hours).forEach(function (x) {
+  walls.concat(hours).concat(weekly).concat(consecutive).forEach(function (x) {
     if (x.status === '警告') level = '警告';
     else if (x.status === '注意' && level === '正常') level = '注意';
   });
@@ -49,6 +51,8 @@ function buildSnapshot_(today, runInfo) {
     annual: annual,
     walls: walls,
     hours: hours,
+    weekly: weekly,
+    consecutive: consecutive,
     reconcileRows: reconcileRows,
     forecast: forecast,
     messages: messages,
@@ -201,6 +205,53 @@ function writeSummarySheet_(snapshot) {
     });
   }
 
+  var weeklyRows = (snapshot.weekly || []).filter(function (w) {
+    return w.isCurrentWeek || w.hours > 0;
+  });
+  if (weeklyRows.length > 0) {
+    section('週ごとの労働時間（正社員の週所定労働時間の4分の3が基準の勤務先）');
+    tableHeader(['勤務先', '週（月曜〜日曜）', '実働(h)', '週の上限(h)', '残り(h)', '状態']);
+    weeklyRows.forEach(function (w) {
+      statusRow(
+        [
+          w.companyName + (w.isCurrentWeek ? '（今週）' : ''),
+          w.weekStart + ' 〜 ' + w.weekEnd,
+          w.hours,
+          w.limit,
+          w.remainingHours,
+          w.status
+        ],
+        6
+      );
+    });
+  }
+
+  var consecutiveRows = (snapshot.consecutive || []).filter(function (c) {
+    return c.requiredMonths >= 2;
+  });
+  if (consecutiveRows.length > 0) {
+    section('連続月の判定（「月◯時間以上が◯ヶ月連続」が基準の勤務先）');
+    tableHeader(['勤務先', '条件', '実績', '状態']);
+    consecutiveRows.forEach(function (c) {
+      statusRow(
+        [
+          c.companyName,
+          '月' + c.limit + '時間以上が' + c.requiredMonths + 'ヶ月連続',
+          c.months
+            .map(function (m) {
+              return m.yearMonth + ' ' + m.hours + 'h';
+            })
+            .join(' / '),
+          c.status,
+          '',
+          c.status
+        ],
+        6
+      );
+      if (c.message) push(['　→ ' + c.message]);
+    });
+  }
+
   section('月次の答え合わせ（給与明細との差分）');
   tableHeader(['年月', '勤務先', 'カレンダー推定額', '実際の支給額', '差分', '状態']);
   var recent = snapshot.reconcileRows.slice(-12);
@@ -301,6 +352,22 @@ function buildNotificationText_(snapshot) {
         (h.confirmed ? '' : ' ※上限は暫定値')
     );
   });
+  var currentWeek = (snapshot.weekly || []).filter(function (w) {
+    return w.isCurrentWeek;
+  });
+  if (currentWeek.length > 0) {
+    lines.push('');
+    lines.push('【今週の労働時間（週の上限がある勤務先）】');
+    currentWeek.forEach(function (w) {
+      lines.push('  ・' + w.companyName + ' : ' + w.hours + 'h / ' + w.limit + 'h ' + w.status);
+    });
+  }
+  (snapshot.consecutive || []).forEach(function (c) {
+    if (c.status === '正常' || !c.message) return;
+    lines.push('');
+    lines.push('【連続月の注意】' + c.message);
+  });
+
   var forecast = snapshot.forecast;
   if (forecast && forecast.available) {
     lines.push('');

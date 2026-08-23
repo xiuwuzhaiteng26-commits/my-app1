@@ -80,7 +80,10 @@ function buildAppData_() {
     return {
       companyName: String(r.company_name || ''),
       limit: toNumber_(r.monthly_hour_limit) || CONFIG.hours.defaultMonthlyLimit,
+      weeklyLimit: toNumber_(r.weekly_hour_limit),
+      consecutiveMonths: toNumber_(r.consecutive_months) || 1,
       confirmed: toBool_(r.confirmed),
+      basis: String(r.basis || ''),
       note: String(r.note || '')
     };
   });
@@ -126,6 +129,8 @@ function buildAppData_() {
       };
     }),
     hours: snapshot.hours,
+    weekly: snapshot.weekly,
+    consecutive: snapshot.consecutive,
     forecast: snapshot.forecast,
     annual: {
       calendarRevenue: a.calendarRevenue,
@@ -241,7 +246,10 @@ function appSaveCompanyLimit(payload) {
     monthly_hour_limit: limit,
     confirmed: !!payload.confirmed,
     note: payload.confirmed ? '会社から回答済みの実数' : '暫定値。正社員の所定労働時間の回答が来たら実数に差し替える',
-    updated_at: formatDateTime_(new Date())
+    updated_at: formatDateTime_(new Date()),
+    weekly_hour_limit: toNumber_(payload.weeklyLimit),
+    consecutive_months: toNumber_(payload.consecutiveMonths) || 1,
+    basis: payload.basis === undefined ? (target ? String(target.basis || '') : '') : String(payload.basis)
   };
   if (target) writeRowAt_(SHEETS.LIMITS, target._rowIndex, row);
   else appendRows_(SHEETS.LIMITS, [row]);

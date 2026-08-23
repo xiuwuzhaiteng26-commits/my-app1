@@ -35,6 +35,24 @@ var SEED_MANUAL_INCOME = [];
  */
 var SEED_SHIFTS = [];
 
+/**
+ * 勤務先ごとの上限（会社から回答をもらったもの）
+ *
+ * ここも空のまま公開リポジトリに置いています。会社名は個人情報なので、
+ * 自分の Apps Script プロジェクト側でだけ書いてください。
+ *
+ * 書き方:
+ *   {
+ *     company_name: '〇〇',
+ *     monthly_hour_limit: 130,   // 月の上限（時間）
+ *     weekly_hour_limit: 30,     // 週の上限（時間）。無ければ 0
+ *     consecutive_months: 1,     // 「◯ヶ月連続で対象」と言われた場合その月数。通常は1
+ *     confirmed: true,           // 会社から正式な回答をもらったか
+ *     basis: '正社員の週所定労働時間40時間の3/4（2026-08-23 メール回答）'
+ *   }
+ */
+var SEED_COMPANY_LIMITS = [];
+
 /** 同じ勤務を指すかどうかの判定キー */
 function shiftKey_(date, companyName, startTime) {
   return toDateString_(date) + '\t' + String(companyName).trim() + '\t' + toTimeString_(startTime);
@@ -43,7 +61,7 @@ function shiftKey_(date, companyName, startTime) {
 /** メニューから呼ぶ本体 */
 function importSeedData() {
   ensureSheets_();
-  if (SEED_MANUAL_INCOME.length === 0 && SEED_SHIFTS.length === 0) {
+  if (SEED_MANUAL_INCOME.length === 0 && SEED_SHIFTS.length === 0 && SEED_COMPANY_LIMITS.length === 0) {
     showAlert_(
       '登録するデータがありません',
       'SeedData の SEED_MANUAL_INCOME と SEED_SHIFTS に、収入とシフトを書いてから実行してください。'
@@ -52,6 +70,7 @@ function importSeedData() {
   }
   var manual = seedManualIncome_();
   var shifts = seedShifts_();
+  var limits = seedCompanyLimits_();
 
   recalcReconciliations_();
   var snapshot = buildSnapshot_(new Date(), null);
@@ -60,7 +79,10 @@ function importSeedData() {
   var message =
     '手入力の収入: ' + manual.inserted + '件追加 / ' + manual.updated + '件更新\n' +
     'シフト: ' + shifts.inserted + '件追加 / ' + shifts.updated + '件更新' +
-    (shifts.skipped ? ' / ' + shifts.skipped + '件はカレンダー取り込み済みのため見送り' : '');
+    (shifts.skipped ? ' / ' + shifts.skipped + '件はカレンダー取り込み済みのため見送り' : '') +
+    (limits.inserted + limits.updated > 0
+      ? '\n勤務先の上限: ' + limits.inserted + '件追加 / ' + limits.updated + '件更新'
+      : '');
   writeLog_('seed', '正常', message.replace(/\n/g, ' '));
   showSummaryAlert_('実データを取り込みました\n\n' + message, snapshot);
   return snapshot;
@@ -82,6 +104,25 @@ function seedManualIncome_() {
     };
   });
   return upsertRows_(SHEETS.MANUAL, rows, 'id');
+}
+
+/** 会社から回答をもらった上限を登録（勤務先名をキーに上書き） */
+function seedCompanyLimits_() {
+  if (SEED_COMPANY_LIMITS.length === 0) return { inserted: 0, updated: 0 };
+  var now = formatDateTime_(new Date());
+  var rows = SEED_COMPANY_LIMITS.map(function (item) {
+    return {
+      company_name: item.company_name,
+      monthly_hour_limit: item.monthly_hour_limit,
+      confirmed: !!item.confirmed,
+      note: item.confirmed ? '会社から回答済みの実数' : '暫定値',
+      updated_at: now,
+      weekly_hour_limit: item.weekly_hour_limit || 0,
+      consecutive_months: item.consecutive_months || 1,
+      basis: item.basis || ''
+    };
+  });
+  return upsertRows_(SHEETS.LIMITS, rows, 'company_name');
 }
 
 /** シフトを勤務明細に登録（カレンダーから取り込み済みの勤務は触らない） */

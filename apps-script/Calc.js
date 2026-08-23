@@ -150,15 +150,7 @@ function evaluateWalls_(wallRows, totalRevenue, targetYear) {
  * 80%で「注意」、100%で「警告」。
  */
 function aggregateMonthlyHours_(calendarRows, limitRows, yearMonth) {
-  var limits = {};
-  limitRows.forEach(function (r) {
-    var name = String(r.company_name || '').trim();
-    if (!name) return;
-    limits[name] = {
-      limit: toNumber_(r.monthly_hour_limit) || CONFIG.hours.defaultMonthlyLimit,
-      confirmed: toBool_(r.confirmed)
-    };
-  });
+  var limits = readCompanyLimits_(limitRows);
 
   var byCompany = {};
   calendarRows.forEach(function (r) {
@@ -174,10 +166,7 @@ function aggregateMonthlyHours_(calendarRows, limitRows, yearMonth) {
   return Object.keys(byCompany)
     .sort()
     .map(function (name) {
-      var limitInfo = limits[name] || {
-        limit: CONFIG.hours.defaultMonthlyLimit,
-        confirmed: false
-      };
+      var limitInfo = limits[name] || defaultCompanyLimit_();
       var hours = round2_(byCompany[name].hours);
       var ratio = limitInfo.limit > 0 ? hours / limitInfo.limit : 0;
       var status = '正常';
@@ -191,10 +180,170 @@ function aggregateMonthlyHours_(calendarRows, limitRows, yearMonth) {
         days: byCompany[name].days,
         limit: limitInfo.limit,
         confirmed: limitInfo.confirmed,
+        basis: limitInfo.basis,
         ratio: ratio,
         status: status
       };
     });
+}
+
+/** 勤務先ごとの上限設定を読む */
+function readCompanyLimits_(limitRows) {
+  var limits = {};
+  (limitRows || []).forEach(function (r) {
+    var name = String(r.company_name || '').trim();
+    if (!name) return;
+    limits[name] = {
+      limit: toNumber_(r.monthly_hour_limit) || CONFIG.hours.defaultMonthlyLimit,
+      weeklyLimit: toNumber_(r.weekly_hour_limit),
+      consecutiveMonths: toNumber_(r.consecutive_months) || 1,
+      confirmed: toBool_(r.confirmed),
+      basis: String(r.basis || '')
+    };
+  });
+  return limits;
+}
+
+function defaultCompanyLimit_() {
+  return {
+    limit: CONFIG.hours.defaultMonthlyLimit,
+    weeklyLimit: 0,
+    consecutiveMonths: 1,
+    confirmed: false,
+    basis: ''
+  };
+}
+
+function statusForRatio_(ratio) {
+  if (ratio >= CONFIG.hours.alertRatio) return '警告';
+  if (ratio >= CONFIG.hours.warnRatio) return '注意';
+  return '正常';
+}
+
+/**
+ * 週の上限がある勤務先について、直近の週ごとの実働時間を集計する。
+ * 「正社員の週所定労働時間の4分の3」のように週単位で基準が示された場合に使う。
+ */
+function aggregateWeeklyHours_(calendarRows, limitRows, today, weeks) {
+  var limits = readCompanyLimits_(limitRows);
+  var targets = Object.keys(limits).filter(function (name) {
+    return limits[name].weeklyLimit > 0;
+  });
+  if (targets.length === 0) return [];
+
+  var count = weeks || 4;
+  var thisWeek = weekStartOf_(formatDate_(today));
+  var windowStart = addDays_(thisWeek, -7 * (count - 1));
+
+  var byKey = {};
+  calendarRows.forEach(function (r) {
+    var name = String(r.company_name || '').trim();
+    if (!limits[name] || limits[name].weeklyLimit <= 0) return;
+    var date = toDateString_(r.date);
+    var weekStart = weekStartOf_(date);
+    if (!weekStart || weekStart < windowStart || weekStart > thisWeek) return;
+    var key = name + '\t' + weekStart;
+    byKey[key] = (byKey[key] || 0) + toNumber_(r.worked_hours);
+  });
+
+  var result = [];
+  targets.sort().forEach(function (name) {
+    for (var i = count - 1; i >= 0; i--) {
+      var weekStart = addDays_(thisWeek, -7 * i);
+      var hours = round2_(byKey[name + '\t' + weekStart] || 0);
+      var limit = limits[name].weeklyLimit;
+      var ratio = limit > 0 ? hours / limit : 0;
+      result.push({
+        companyName: name,
+        weekStart: weekStart,
+        weekEnd: addDays_(weekStart, 6),
+        isCurrentWeek: weekStart === thisWeek,
+        hours: hours,
+        limit: limit,
+        confirmed: limits[name].confirmed,
+        ratio: ratio,
+        status: statusForRatio_(ratio),
+        remainingHours: round2_(Math.max(0, limit - hours))
+      });
+    }
+  });
+  return result;
+}
+
+/**
+ * 「月◯時間以上が◯ヶ月連続」という条件の勤務先を判定する。
+ * 連続月数が1の勤務先（単月判定）は対象外。
+ */
+function evaluateConsecutiveMonths_(calendarRows, limitRows, today, extraHours) {
+  var limits = readCompanyLimits_(limitRows);
+  var currentMonth = formatYearMonth_(today);
+
+  var monthly = {};
+  calendarRows.forEach(function (r) {
+    var name = String(r.company_name || '').trim();
+    if (!name) return;
+    var ym = yearMonthOfDateString_(toDateString_(r.date));
+    if (!ym) return;
+    monthly[name + '\t' + ym] = (monthly[name + '\t' + ym] || 0) + toNumber_(r.worked_hours);
+  });
+  // 見込みで判定したいときに、これからの予定分を足し込む
+  Object.keys(extraHours || {}).forEach(function (key) {
+    monthly[key] = (monthly[key] || 0) + toNumber_(extraHours[key]);
+  });
+
+  var result = [];
+  Object.keys(limits)
+    .sort()
+    .forEach(function (name) {
+      var info = limits[name];
+      if (info.consecutiveMonths < 2) return;
+
+      var months = [];
+      for (var i = info.consecutiveMonths - 1; i >= 0; i--) {
+        var ym = addMonths_(currentMonth, -i);
+        var hours = round2_(monthly[name + '\t' + ym] || 0);
+        months.push({
+          yearMonth: ym,
+          hours: hours,
+          isCurrentMonth: ym === currentMonth,
+          over: hours >= info.limit
+        });
+      }
+
+      var past = months.slice(0, months.length - 1);
+      var current = months[months.length - 1];
+      var pastAllOver = past.length > 0 && past.every(function (m) {
+        return m.over;
+      });
+
+      var status = '正常';
+      var message = '';
+      if (pastAllOver && current.over) {
+        status = '警告';
+        message =
+          name + ' は ' + info.consecutiveMonths + 'ヶ月連続で月' + info.limit + '時間以上になっています（' +
+          months.map(function (m) {
+            return m.yearMonth + ' ' + m.hours + 'h';
+          }).join(' / ') + '）。勤務先に相談してください。';
+      } else if (pastAllOver) {
+        status = '注意';
+        message =
+          '先月まで ' + past.length + 'ヶ月連続で月' + info.limit + '時間以上です。' +
+          name + ' の今月は ' + current.hours + '時間。あと ' + round2_(Math.max(0, info.limit - current.hours)) +
+          '時間で' + info.consecutiveMonths + 'ヶ月連続になるので、今月は' + info.limit + '時間未満に抑えてください。';
+      }
+
+      result.push({
+        companyName: name,
+        limit: info.limit,
+        requiredMonths: info.consecutiveMonths,
+        months: months,
+        status: status,
+        message: message,
+        basis: info.basis
+      });
+    });
+  return result;
 }
 
 /** 月次の答え合わせ（給与明細の実額 vs カレンダー推定額）の判定 */

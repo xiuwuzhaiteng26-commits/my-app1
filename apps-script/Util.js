@@ -146,3 +146,24 @@ function addMonths_(yearMonth, n) {
   var total = Number(m[1]) * 12 + (Number(m[2]) - 1) + n;
   return Math.floor(total / 12) + '-' + pad2_((total % 12) + 1);
 }
+
+/** 'yyyy-MM-dd' が属する週（月曜始まり）の月曜日を返す */
+function weekStartOf_(dateStr) {
+  var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  var date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  var offset = (date.getDay() + 6) % 7; // 月曜=0
+  date.setDate(date.getDate() - offset);
+  return (
+    date.getFullYear() + '-' + pad2_(date.getMonth() + 1) + '-' + pad2_(date.getDate())
+  );
+}
+
+/** 'yyyy-MM-dd' を n 日進める */
+function addDays_(dateStr, n) {
+  var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return dateStr;
+  var date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  date.setDate(date.getDate() + n);
+  return date.getFullYear() + '-' + pad2_(date.getMonth() + 1) + '-' + pad2_(date.getDate());
+}

@@ -295,6 +295,37 @@
           hoursHtml
         );
 
+        var weekly = (d.weekly || []).filter(function (w) { return w.isCurrentWeek; });
+        if (weekly.length) {
+          var weeklyHtml = '';
+          weekly.forEach(function (w) {
+            weeklyHtml +=
+              '<div style="margin-bottom:14px">' +
+              '<div class="row"><h3>' + esc(w.companyName) + '</h3><span class="badge s-' + esc(w.status) + '">' + esc(w.status) + '</span></div>' +
+              bar(w.ratio, w.status) +
+              '<div class="row"><span class="sub">' + w.hours + ' / ' + w.limit + ' 時間（' + pct(w.ratio) + '）</span>' +
+              '<span class="sub">残り ' + w.remainingHours + 'h</span></div></div>';
+          });
+          html += card('今週（' + esc(weekly[0].weekStart) + ' 〜 ' + esc(weekly[0].weekEnd) + '）の労働時間', weeklyHtml);
+        }
+
+        var consecutive = (d.consecutive || []).filter(function (c) { return c.requiredMonths >= 2; });
+        if (consecutive.length) {
+          var conHtml = '';
+          consecutive.forEach(function (c) {
+            conHtml +=
+              '<div style="margin-bottom:14px">' +
+              '<div class="row"><h3>' + esc(c.companyName) + '</h3><span class="badge s-' + esc(c.status) + '">' + esc(c.status) + '</span></div>' +
+              '<div class="sub">条件：月' + c.limit + '時間以上が' + c.requiredMonths + 'ヶ月連続</div>' +
+              '<div class="sub">' + c.months.map(function (m) {
+                return esc(m.yearMonth) + ' ' + m.hours + 'h' + (m.over ? '（超）' : '');
+              }).join('　/　') + '</div>' +
+              (c.message ? '<div class="sub" style="margin-top:6px">' + esc(c.message) + '</div>' : '') +
+              '</div>';
+          });
+          html += card('連続月の判定', conHtml);
+        }
+
         var listHtml = '';
         if (!d.recentEntries.length) {
           listHtml = '<div class="empty">まだ取り込まれた勤務がありません</div>';
@@ -521,16 +552,25 @@
               '<span class="badge s-' + (l.confirmed ? '正常">確定' : '注意">暫定') + '</span></div>' +
               '<div class="inline" style="margin-top:8px">' +
               '<input type="number" inputmode="numeric" id="lim-' + i + '" value="' + l.limit + '" />' +
-              '<span class="sub">時間/月</span>' +
+              '<span class="sub">時間/月</span></div>' +
+              '<div class="inline" style="margin-top:6px">' +
+              '<input type="number" inputmode="numeric" id="wk-' + i + '" value="' + (l.weeklyLimit || '') + '" placeholder="未設定" />' +
+              '<span class="sub">時間/週</span></div>' +
+              '<div class="inline" style="margin-top:6px">' +
+              '<input type="number" inputmode="numeric" id="con-' + i + '" value="' + (l.consecutiveMonths || 1) + '" />' +
+              '<span class="sub">ヶ月連続で判定</span>' +
               '<button class="small" data-limit="' + i + '">保存</button></div>' +
               '<label class="check"><input type="checkbox" id="cfm-' + i + '"' + (l.confirmed ? ' checked' : '') + ' />会社から正式な回答をもらった</label>' +
+              (l.basis ? '<div class="sub" style="margin-top:6px">根拠：' + esc(l.basis) + '</div>' : '') +
               '</div>';
           });
         }
         html += card(
           '勤務先ごとの月間上限（4分の3基準）',
           '<div class="sub" style="margin-bottom:12px">正社員の所定労働時間の回答が来たら、暫定値' +
-            DATA.defaultMonthlyLimit + '時間を実数に差し替えてください。</div>' + limitsHtml
+            DATA.defaultMonthlyLimit + '時間を実数に差し替えてください。' +
+            '週の上限は「正社員の週所定労働時間の4分の3」が示された場合に入れます（未設定なら判定しません）。' +
+            '連続月数は「月◯時間以上が◯ヶ月連続で対象」と言われた場合にその月数を入れます（通常は1）。</div>' + limitsHtml
         );
 
         html += card(
@@ -556,6 +596,8 @@
             call('appSaveCompanyLimit', {
               companyName: DATA.limits[i].companyName,
               limit: el('lim-' + i).value,
+              weeklyLimit: el('wk-' + i).value,
+              consecutiveMonths: el('con-' + i).value,
               confirmed: el('cfm-' + i).checked
             }, function (res) { toast(res.message); });
           });
