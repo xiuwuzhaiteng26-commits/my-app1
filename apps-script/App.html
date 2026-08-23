@@ -176,7 +176,25 @@
     <div id="busy"><div>処理中…</div></div>
 
     <script>
-      var DATA = JSON.parse('<?!= bootstrapJson ?>');
+      // 下のスクリプトが壊れても白い「読み込み中…」のまま放置しないための保険。
+      // 別の script ブロックに置くことで、後続ブロックの構文エラーも拾える。
+      window.addEventListener('error', function (event) {
+        var updated = document.getElementById('updated');
+        if (updated) updated.textContent = '表示エラー';
+        var home = document.getElementById('view-home');
+        if (home) {
+          home.innerHTML =
+            '<div class="card"><h2>画面を表示できませんでした</h2><div class="sub">' +
+            String(event.message || event.error || '不明なエラー') +
+            '</div><div class="sub" style="margin-top:8px">スプレッドシートのサマリータブからも同じ内容を確認できます。</div></div>';
+        }
+      });
+    </script>
+
+    <script>
+      // JSON はそのまま JavaScript のリテラルとして正しいので、文字列に包まず埋め込む。
+      // 文字列に包むと \t や \" が JS 側で先に展開されてしまい、JSON.parse が壊れる。
+      var DATA = <?!= bootstrapJson ?>;
       var CURRENT = 'home';
 
       /* ---------- 小物 ---------- */
