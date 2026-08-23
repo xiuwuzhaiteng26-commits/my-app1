@@ -95,25 +95,20 @@ function runAnalysisForRange_(startDate, endDate) {
  * 同じ予定を再実行しても重複しない（カレンダーの予定ID＋日付をキーに上書きする）。
  */
 function importDateRange_(startDate, endDate) {
-  var all = { entries: [], skipped: 0, errors: [], warnings: [], days: 0, from: '', to: '' };
-  var cursor = new Date(startDate.getTime());
-  cursor.setHours(12, 0, 0, 0); // 夏時間・日付境界の影響を避ける
+  var start = new Date(startDate.getTime());
+  start.setHours(0, 0, 0, 0);
   var last = new Date(endDate.getTime());
-  last.setHours(12, 0, 0, 0);
+  last.setHours(0, 0, 0, 0);
+  var days = Math.round((last.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (days < 1) days = 1;
+  if (days > 400) days = 400;
+  var end = new Date(start.getTime());
+  end.setDate(end.getDate() + days);
 
-  var guard = 0;
-  while (cursor.getTime() <= last.getTime() && guard < 400) {
-    var day = fetchWorkEntriesForDate_(cursor);
-    all.entries = all.entries.concat(day.entries);
-    all.skipped += day.skipped;
-    all.errors = all.errors.concat(day.errors);
-    all.warnings = all.warnings.concat(day.warnings);
-    if (all.days === 0) all.from = day.dateStr;
-    all.to = day.dateStr;
-    all.days++;
-    cursor.setDate(cursor.getDate() + 1);
-    guard++;
-  }
+  var all = fetchWorkEntriesInRange_(start, end);
+  all.days = days;
+  all.from = formatDate_(start);
+  all.to = formatDate_(new Date(end.getTime() - 24 * 60 * 60 * 1000));
 
   // 手入力で登録した同じ勤務があれば消す（カレンダーを正とする）
   removeSeededDuplicates_(all.entries);

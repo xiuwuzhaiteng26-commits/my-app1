@@ -53,6 +53,16 @@ var CONFIG = {
     alertRatio: 1.0
   },
 
+  /** アプリ画面 */
+  app: {
+    /**
+     * アプリを開いたとき、直近何日分のカレンダーをその場で取り込むか。
+     * 毎晩23:30を待たずに、書いた予定がすぐ反映されるようにするためのもの。
+     * 0 にすると自動取り込みをしない。
+     */
+    autoImportDays: 3
+  },
+
   /** この先の見込み（先読みと調整アドバイス） */
   forecast: {
     /** 何日先までのカレンダーを読むか */
@@ -944,12 +954,26 @@ function getTargetCalendar_() {
  * 戻り値: { dateStr, entries[], skipped, errors[], warnings[] }
  */
 function fetchWorkEntriesForDate_(date) {
-  var dateStr = formatDate_(date);
-  var events = getTargetCalendar_().getEventsForDay(date);
-  var result = { dateStr: dateStr, entries: [], skipped: 0, errors: [], warnings: [] };
+  var start = new Date(date.getTime());
+  start.setHours(0, 0, 0, 0);
+  var end = new Date(start.getTime());
+  end.setDate(end.getDate() + 1);
+  var result = fetchWorkEntriesInRange_(start, end);
+  result.dateStr = formatDate_(start);
+  return result;
+}
+
+/**
+ * 期間内の予定を1回のAPI呼び出しで取得し、勤務データにする。
+ * 戻り値: { entries[], skipped, errors[], warnings[] }
+ */
+function fetchWorkEntriesInRange_(startDate, endDate) {
+  var events = getTargetCalendar_().getEvents(startDate, endDate);
+  var result = { entries: [], skipped: 0, errors: [], warnings: [] };
   var now = formatDateTime_(new Date());
 
   events.forEach(function (event) {
+    var dateStr = formatDate_(event.getStartTime());
     var title = event.getTitle();
     var parsed = parseWorkEventTitle_(title);
 
@@ -2168,6 +2192,7 @@ function doGet() {
   var payload;
   try {
     ensureSheets_();
+    autoImportRecent_();
     payload = buildAppData_();
   } catch (e) {
     payload = { error: e.message, disclaimer: CONFIG.disclaimer };
@@ -2185,6 +2210,24 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .addMetaTag('mobile-web-app-capable', 'yes')
     .addMetaTag('apple-mobile-web-app-capable', 'yes');
+}
+
+/**
+ * 直近数日のカレンダーをその場で取り込む。
+ * 画面を開いた時点の内容にするためのもので、失敗しても画面表示は止めない。
+ */
+function autoImportRecent_() {
+  var days = CONFIG.app.autoImportDays;
+  if (!days) return null;
+  try {
+    var today = new Date();
+    var from = new Date(today.getTime());
+    from.setDate(from.getDate() - (days - 1));
+    return importDateRange_(from, today);
+  } catch (e) {
+    writeLog_('app', '注意', 'アプリ表示時の取り込みに失敗しました: ' + e.message);
+    return null;
+  }
 }
 
 /** 画面に表示するデータ一式 */
@@ -2296,6 +2339,7 @@ function buildAppData_() {
 /** 再読み込み（答え合わせの再計算つき） */
 function appRefresh() {
   ensureSheets_();
+  autoImportRecent_();
   recalcReconciliations_();
   writeSummarySheet_(buildSnapshot_(new Date(), null));
   return buildAppData_();
@@ -2497,25 +2541,20 @@ function runAnalysisForRange_(startDate, endDate) {
  * 同じ予定を再実行しても重複しない（カレンダーの予定ID＋日付をキーに上書きする）。
  */
 function importDateRange_(startDate, endDate) {
-  var all = { entries: [], skipped: 0, errors: [], warnings: [], days: 0, from: '', to: '' };
-  var cursor = new Date(startDate.getTime());
-  cursor.setHours(12, 0, 0, 0); // 夏時間・日付境界の影響を避ける
+  var start = new Date(startDate.getTime());
+  start.setHours(0, 0, 0, 0);
   var last = new Date(endDate.getTime());
-  last.setHours(12, 0, 0, 0);
+  last.setHours(0, 0, 0, 0);
+  var days = Math.round((last.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (days < 1) days = 1;
+  if (days > 400) days = 400;
+  var end = new Date(start.getTime());
+  end.setDate(end.getDate() + days);
 
-  var guard = 0;
-  while (cursor.getTime() <= last.getTime() && guard < 400) {
-    var day = fetchWorkEntriesForDate_(cursor);
-    all.entries = all.entries.concat(day.entries);
-    all.skipped += day.skipped;
-    all.errors = all.errors.concat(day.errors);
-    all.warnings = all.warnings.concat(day.warnings);
-    if (all.days === 0) all.from = day.dateStr;
-    all.to = day.dateStr;
-    all.days++;
-    cursor.setDate(cursor.getDate() + 1);
-    guard++;
-  }
+  var all = fetchWorkEntriesInRange_(start, end);
+  all.days = days;
+  all.from = formatDate_(start);
+  all.to = formatDate_(new Date(end.getTime() - 24 * 60 * 60 * 1000));
 
   // 手入力で登録した同じ勤務があれば消す（カレンダーを正とする）
   removeSeededDuplicates_(all.entries);

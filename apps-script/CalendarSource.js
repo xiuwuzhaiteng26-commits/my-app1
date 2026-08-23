@@ -16,12 +16,26 @@ function getTargetCalendar_() {
  * 戻り値: { dateStr, entries[], skipped, errors[], warnings[] }
  */
 function fetchWorkEntriesForDate_(date) {
-  var dateStr = formatDate_(date);
-  var events = getTargetCalendar_().getEventsForDay(date);
-  var result = { dateStr: dateStr, entries: [], skipped: 0, errors: [], warnings: [] };
+  var start = new Date(date.getTime());
+  start.setHours(0, 0, 0, 0);
+  var end = new Date(start.getTime());
+  end.setDate(end.getDate() + 1);
+  var result = fetchWorkEntriesInRange_(start, end);
+  result.dateStr = formatDate_(start);
+  return result;
+}
+
+/**
+ * 期間内の予定を1回のAPI呼び出しで取得し、勤務データにする。
+ * 戻り値: { entries[], skipped, errors[], warnings[] }
+ */
+function fetchWorkEntriesInRange_(startDate, endDate) {
+  var events = getTargetCalendar_().getEvents(startDate, endDate);
+  var result = { entries: [], skipped: 0, errors: [], warnings: [] };
   var now = formatDateTime_(new Date());
 
   events.forEach(function (event) {
+    var dateStr = formatDate_(event.getStartTime());
     var title = event.getTitle();
     var parsed = parseWorkEventTitle_(title);
 

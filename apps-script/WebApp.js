@@ -14,6 +14,7 @@ function doGet() {
   var payload;
   try {
     ensureSheets_();
+    autoImportRecent_();
     payload = buildAppData_();
   } catch (e) {
     payload = { error: e.message, disclaimer: CONFIG.disclaimer };
@@ -31,6 +32,24 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .addMetaTag('mobile-web-app-capable', 'yes')
     .addMetaTag('apple-mobile-web-app-capable', 'yes');
+}
+
+/**
+ * 直近数日のカレンダーをその場で取り込む。
+ * 画面を開いた時点の内容にするためのもので、失敗しても画面表示は止めない。
+ */
+function autoImportRecent_() {
+  var days = CONFIG.app.autoImportDays;
+  if (!days) return null;
+  try {
+    var today = new Date();
+    var from = new Date(today.getTime());
+    from.setDate(from.getDate() - (days - 1));
+    return importDateRange_(from, today);
+  } catch (e) {
+    writeLog_('app', '注意', 'アプリ表示時の取り込みに失敗しました: ' + e.message);
+    return null;
+  }
 }
 
 /** 画面に表示するデータ一式 */
@@ -142,6 +161,7 @@ function buildAppData_() {
 /** 再読み込み（答え合わせの再計算つき） */
 function appRefresh() {
   ensureSheets_();
+  autoImportRecent_();
   recalcReconciliations_();
   writeSummarySheet_(buildSnapshot_(new Date(), null));
   return buildAppData_();

@@ -342,6 +342,57 @@ check('毎日の実行: 過去7日分を見直す設定', run('CONFIG.daily.look
   delete events['2026-08-20'];
 }
 
+/* --- アプリを開いたときの自動取り込み --- */
+{
+  // autoImportRecent_ は実行時点の「今日」を見るので、テストも実行日で組み立てる
+  const now = new Date();
+  const y = now.getFullYear();
+  const mo = now.getMonth();
+  const day = now.getDate();
+  const key = (offset) => {
+    const d = new Date(y, mo, day - offset);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const at = (offset, hour) => new Date(y, mo, day - offset, hour, 0);
+
+  const autoEnv = makeSandbox({
+    [key(0)]: [{ id: 'auto-today', title: '[会社Z] 10:00-15:00 休憩なし 時給1500円', start: at(0, 10), end: at(0, 15) }],
+    [key(2)]: [{ id: 'auto-2days', title: '[会社Z] 09:00-18:00 休憩1h 時給1500円', start: at(2, 9), end: at(2, 18) }],
+    [key(9)]: [{ id: 'auto-old', title: '[会社Z] 09:00-18:00 休憩1h 時給1500円', start: at(9, 9), end: at(9, 18) }]
+  });
+  const aCtx = vm.createContext(autoEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), aCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), aCtx, { filename: file });
+  }
+  const aRun = (expr) => vm.runInContext(expr, aCtx);
+  aRun('ensureSheets_()');
+
+  check('自動取り込み: 開く前は空', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 0);
+  aRun('doGet()');
+  const imported = aRun('readTable_(SHEETS.CALENDAR).rows');
+  check('自動取り込み: アプリを開くと直近3日分が入る', imported.length, 2);
+  check(
+    '自動取り込み: 今日の分の内容',
+    imported.filter((r) => String(r.id).indexOf('auto-today') === 0).map((r) => [r.worked_hours, r.estimated_amount]),
+    [[5, 7500]]
+  );
+  check('自動取り込み: 3日より前は取り込まない', imported.filter((r) => String(r.id).indexOf('auto-old') === 0).length, 0);
+
+  aRun('doGet()');
+  aRun('appRefresh()');
+  check('自動取り込み: 何度開いても二重にならない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 2);
+
+  // 期間指定の取り込みは1回のAPI呼び出しでも日をまたいで拾えること
+  aRun('__from = new Date(' + y + ', ' + mo + ', ' + (day - 10) + ')');
+  aRun('__to = new Date(' + y + ', ' + mo + ', ' + day + ')');
+  const ranged = aRun('importDateRange_(__from, __to)');
+  check('期間取り込み: 10日前の分まで拾う', ranged.entries.length, 3);
+  check('期間取り込み: 期間の表示', [ranged.days, ranged.from === key(10), ranged.to === key(0)], [11, true, true]);
+  check('期間取り込み: それでも重複しない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 3);
+}
+
 /* --- この先の見込みと調整アドバイス --- */
 {
   const shift = (date, h, m, hours, company, wage) => ({
