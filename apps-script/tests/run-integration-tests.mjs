@@ -320,7 +320,7 @@ check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYe
 }
 
 /* --- 毎日の実行は直近数日を見直す --- */
-check('毎日の実行: 過去7日分を見直す設定', run('CONFIG.daily.lookbackDays'), 7);
+check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.lookbackDays'), 31);
 {
   // 8/20 に予定を足してから 8/22 の夜間実行を回すと、後から書いた予定も拾える
   events['2026-08-20'] = [
@@ -358,7 +358,8 @@ check('毎日の実行: 過去7日分を見直す設定', run('CONFIG.daily.look
   const autoEnv = makeSandbox({
     [key(0)]: [{ id: 'auto-today', title: '[会社Z] 10:00-15:00 休憩なし 時給1500円', start: at(0, 10), end: at(0, 15) }],
     [key(2)]: [{ id: 'auto-2days', title: '[会社Z] 09:00-18:00 休憩1h 時給1500円', start: at(2, 9), end: at(2, 18) }],
-    [key(9)]: [{ id: 'auto-old', title: '[会社Z] 09:00-18:00 休憩1h 時給1500円', start: at(9, 9), end: at(9, 18) }]
+    [key(9)]: [{ id: 'auto-9days', title: '[会社Z] 09:00-18:00 休憩1h 時給1500円', start: at(9, 9), end: at(9, 18) }],
+    [key(40)]: [{ id: 'auto-old', title: '[会社Z] 09:00-18:00 休憩1h 時給1500円', start: at(40, 9), end: at(40, 18) }]
   });
   const aCtx = vm.createContext(autoEnv.sandbox);
   if (useBundle) {
@@ -372,25 +373,50 @@ check('毎日の実行: 過去7日分を見直す設定', run('CONFIG.daily.look
   check('自動取り込み: 開く前は空', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 0);
   aRun('doGet()');
   const imported = aRun('readTable_(SHEETS.CALENDAR).rows');
-  check('自動取り込み: アプリを開くと直近3日分が入る', imported.length, 2);
+  check('自動取り込み: アプリを開くと直近1ヶ月分が入る', imported.length, 3);
   check(
     '自動取り込み: 今日の分の内容',
     imported.filter((r) => String(r.id).indexOf('auto-today') === 0).map((r) => [r.worked_hours, r.estimated_amount]),
     [[5, 7500]]
   );
-  check('自動取り込み: 3日より前は取り込まない', imported.filter((r) => String(r.id).indexOf('auto-old') === 0).length, 0);
+  check('自動取り込み: 1ヶ月より前は取り込まない', imported.filter((r) => String(r.id).indexOf('auto-old') === 0).length, 0);
 
+  // 2回目以降は、内容が変わっていないので書き込みが発生しないこと
+  const calendarSheet = autoEnv.spreadsheet.getSheetByName('勤務明細');
+  calendarSheet.writes = 0;
   aRun('doGet()');
+  check('自動取り込み: 変わっていなければ書き込まない', calendarSheet.writes, 0);
   aRun('appRefresh()');
-  check('自動取り込み: 何度開いても二重にならない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 2);
+  check('自動取り込み: 何度開いても二重にならない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 3);
+
+  // 予定を直したら、その行だけ書き直されること
+  autoEnv.spreadsheet.getSheetByName('勤務明細').writes = 0;
+  aRun("__events = null");
+  autoEnv.sandbox.CalendarApp.getDefaultCalendar = (function (original) {
+    return function () {
+      const calendar = original();
+      return {
+        getEventsForDay: calendar.getEventsForDay,
+        getEvents: (start, end) =>
+          calendar.getEvents(start, end).map((e) => {
+            if (e.getId() === 'auto-today') e.title = '[会社Z] 10:00-16:00 休憩なし 時給1500円';
+            return e;
+          })
+      };
+    };
+  })(autoEnv.sandbox.CalendarApp.getDefaultCalendar);
+  aRun('doGet()');
+  const changed = aRun('readTable_(SHEETS.CALENDAR).rows').filter((r) => String(r.id).indexOf('auto-today') === 0)[0];
+  check('自動取り込み: 予定を直すと反映される', [changed.worked_hours, changed.estimated_amount], [6, 9000]);
+  check('自動取り込み: 直した1行だけ書き込む', calendarSheet.writes, 1);
 
   // 期間指定の取り込みは1回のAPI呼び出しでも日をまたいで拾えること
-  aRun('__from = new Date(' + y + ', ' + mo + ', ' + (day - 10) + ')');
+  aRun('__from = new Date(' + y + ', ' + mo + ', ' + (day - 45) + ')');
   aRun('__to = new Date(' + y + ', ' + mo + ', ' + day + ')');
   const ranged = aRun('importDateRange_(__from, __to)');
-  check('期間取り込み: 10日前の分まで拾う', ranged.entries.length, 3);
-  check('期間取り込み: 期間の表示', [ranged.days, ranged.from === key(10), ranged.to === key(0)], [11, true, true]);
-  check('期間取り込み: それでも重複しない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 3);
+  check('期間取り込み: 45日前の分まで拾う', ranged.entries.length, 4);
+  check('期間取り込み: 期間の表示', [ranged.days, ranged.from === key(45), ranged.to === key(0)], [46, true, true]);
+  check('期間取り込み: それでも重複しない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 4);
 }
 
 /* --- この先の見込みと調整アドバイス --- */

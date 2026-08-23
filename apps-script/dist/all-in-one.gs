@@ -40,7 +40,7 @@ var CONFIG = {
      * 予定を後から書き足したり直したりしても拾えるようにするための保険。
      * 取り込みは上書きなので、何度見直しても二重計上にはならない。
      */
-    lookbackDays: 7
+    lookbackDays: 31
   },
 
   /** 労働時間の警告（4分の3基準の暫定運用） */
@@ -59,8 +59,9 @@ var CONFIG = {
      * アプリを開いたとき、直近何日分のカレンダーをその場で取り込むか。
      * 毎晩23:30を待たずに、書いた予定がすぐ反映されるようにするためのもの。
      * 0 にすると自動取り込みをしない。
+     * 内容が変わっていない行は書き込まないので、日数を増やしても重くならない。
      */
-    autoImportDays: 3
+    autoImportDays: 31
   },
 
   /** この先の見込み（先読みと調整アドバイス） */
@@ -569,6 +570,7 @@ function upsertRows_(name, objects, keyField, mergeFn) {
 
   var toAppend = [];
   var updated = 0;
+  var unchanged = 0;
   objects.forEach(function (o) {
     var existing = index[String(o[keyField])];
     var merged = mergeFn && existing ? mergeFn(existing, o) : o;
@@ -576,6 +578,11 @@ function upsertRows_(name, objects, keyField, mergeFn) {
       return merged[h] === undefined ? '' : merged[h];
     });
     if (existing) {
+      // 中身が同じ行は書き込まない（毎回1ヶ月分を取り込んでも重くならないように）
+      if (isSameRow_(headers, existing, line)) {
+        unchanged++;
+        return;
+      }
       sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([line]);
       updated++;
     } else {
@@ -585,7 +592,22 @@ function upsertRows_(name, objects, keyField, mergeFn) {
   if (toAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, headers.length).setValues(toAppend);
   }
-  return { updated: updated, inserted: toAppend.length };
+  return { updated: updated, inserted: toAppend.length, unchanged: unchanged };
+}
+
+/** 既存の行と、これから書く行が同じ内容か（updated_at は比較しない） */
+function isSameRow_(headers, existingRow, line) {
+  for (var i = 0; i < headers.length; i++) {
+    var header = headers[i];
+    if (header === 'updated_at' || header === 'entered_at' || header === 'executed_at') continue;
+    var before = existingRow[header];
+    if (before instanceof Date) {
+      before = header.indexOf('time') >= 0 ? toTimeString_(before) : toDateString_(before);
+    }
+    var after = line[i];
+    if (String(before == null ? '' : before) !== String(after == null ? '' : after)) return false;
+  }
+  return true;
 }
 
 /** 行番号を指定して1行を書き換える（手入力された行をそのまま更新するときに使う） */
@@ -995,11 +1017,9 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
         );
         return;
       }
+      // タイトルに時刻を書かず、カレンダーの予定時刻をそのまま使う書き方も正式に対応する
       startTime = formatTime_(event.getStartTime());
       endTime = formatTime_(event.getEndTime());
-      result.warnings.push(
-        dateStr + ' 「' + title + '」: タイトルに時刻が無いため予定の時刻（' + startTime + '-' + endTime + '）を使いました'
-      );
     }
 
     var workedHours = computeWorkedHours_(startTime, endTime, parsed.breakHours);

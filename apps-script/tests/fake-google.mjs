@@ -29,6 +29,7 @@ class FakeRange {
     return out;
   }
   setValues(values) {
+    this.sheet.writes = (this.sheet.writes || 0) + 1;
     if (values.length !== this.numRows) throw new Error('行数が一致しません');
     values.forEach((line, r) => {
       if (line.length !== this.numCols) throw new Error('列数が一致しません');

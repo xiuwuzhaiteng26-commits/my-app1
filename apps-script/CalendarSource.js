@@ -57,11 +57,9 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
         );
         return;
       }
+      // タイトルに時刻を書かず、カレンダーの予定時刻をそのまま使う書き方も正式に対応する
       startTime = formatTime_(event.getStartTime());
       endTime = formatTime_(event.getEndTime());
-      result.warnings.push(
-        dateStr + ' 「' + title + '」: タイトルに時刻が無いため予定の時刻（' + startTime + '-' + endTime + '）を使いました'
-      );
     }
 
     var workedHours = computeWorkedHours_(startTime, endTime, parsed.breakHours);
