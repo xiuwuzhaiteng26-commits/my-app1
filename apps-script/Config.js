@@ -15,8 +15,14 @@ var CONFIG = {
   /** タイムゾーン（日付の切れ目の判定に使う） */
   timeZone: 'Asia/Tokyo',
 
-  /** 読み取るカレンダー。'primary' でログインアカウントのデフォルトカレンダー */
-  calendarId: 'primary',
+  /**
+   * 読み取るカレンダー。'primary' でログインアカウントのデフォルトカレンダー。
+   * 他のGoogleアカウントの予定も取り込みたい場合は、そのカレンダーを
+   * このスクリプトを実行しているアカウントと共有した上で、配列に追記する。
+   *   calendarIds: ['primary', 'other-account@gmail.com']
+   * 共有のしかたは apps-script/README.md の「複数アカウントのカレンダーをまとめる」を参照。
+   */
+  calendarIds: ['primary'],
 
   /** 集計対象年。0 なら実行日の年を使う */
   targetYear: 0,

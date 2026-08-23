@@ -1,14 +1,34 @@
 /** Google カレンダーから、その日（0:00〜23:59）の勤務予定を取り出す */
 
-function getTargetCalendar_() {
-  var calendar =
-    !CONFIG.calendarId || CONFIG.calendarId === 'primary'
-      ? CalendarApp.getDefaultCalendar()
-      : CalendarApp.getCalendarById(CONFIG.calendarId);
-  if (!calendar) {
-    throw new Error('カレンダーが見つかりません: ' + CONFIG.calendarId);
-  }
-  return calendar;
+/**
+ * CONFIG.calendarIds に列挙された全カレンダーを解決する。
+ * 見つからない/読めないカレンダーはエラーを添えて返す（他のカレンダーの取り込みは止めない）。
+ */
+function getTargetCalendars_() {
+  var ids = CONFIG.calendarIds && CONFIG.calendarIds.length ? CONFIG.calendarIds : ['primary'];
+  return ids.map(function (rawId) {
+    var key = String(rawId || 'primary').trim() || 'primary';
+    var calendar = null;
+    var error = null;
+    try {
+      calendar = key === 'primary' ? CalendarApp.getDefaultCalendar() : CalendarApp.getCalendarById(key);
+      if (!calendar) {
+        error = 'カレンダー「' + key + '」が見つかりません。共有されているか確認してください';
+      }
+    } catch (e) {
+      error = 'カレンダー「' + key + '」を読み込めませんでした: ' + e.message;
+    }
+    return { key: key, calendar: calendar, error: error };
+  });
+}
+
+/**
+ * 勤務明細の行IDに使う接頭辞。
+ * 既定カレンダー（primary）は既存データとの互換のため接頭辞を付けない。
+ * 追加したカレンダーはキーを接頭辞にして、他カレンダーの同名予定と衝突しないようにする。
+ */
+function calendarIdPrefix_(key) {
+  return key === 'primary' ? '' : key + ':';
 }
 
 /**
@@ -26,69 +46,84 @@ function fetchWorkEntriesForDate_(date) {
 }
 
 /**
- * 期間内の予定を1回のAPI呼び出しで取得し、勤務データにする。
+ * 期間内の予定を、CONFIG.calendarIds の全カレンダーから取得して勤務データにする。
  * 戻り値: { entries[], skipped, errors[], warnings[] }
  */
 function fetchWorkEntriesInRange_(startDate, endDate) {
-  var events = getTargetCalendar_().getEvents(startDate, endDate);
   var result = { entries: [], skipped: 0, errors: [], warnings: [] };
   var now = formatDateTime_(new Date());
 
-  events.forEach(function (event) {
-    var dateStr = formatDate_(event.getStartTime());
-    var title = event.getTitle();
-    var parsed = parseWorkEventTitle_(title);
-
-    if (parsed.kind === 'skip') {
-      result.skipped++;
-      return;
-    }
-    if (parsed.kind === 'error') {
-      result.errors.push(dateStr + ' 「' + title + '」: ' + parsed.reason);
+  getTargetCalendars_().forEach(function (source) {
+    if (!source.calendar) {
+      if (source.error) result.errors.push(source.error);
       return;
     }
 
-    var startTime = parsed.startTime;
-    var endTime = parsed.endTime;
-    if (!parsed.hasTimeRange) {
-      if (event.isAllDayEvent()) {
-        result.errors.push(
-          dateStr + ' 「' + title + '」: 終日予定でタイトルにも時刻がありません（例: 09:00-18:00）'
-        );
+    var events;
+    try {
+      events = source.calendar.getEvents(startDate, endDate);
+    } catch (e) {
+      result.errors.push('カレンダー「' + source.key + '」の予定を読めませんでした: ' + e.message);
+      return;
+    }
+    var idPrefix = calendarIdPrefix_(source.key);
+
+    events.forEach(function (event) {
+      var dateStr = formatDate_(event.getStartTime());
+      var title = event.getTitle();
+      var parsed = parseWorkEventTitle_(title);
+
+      if (parsed.kind === 'skip') {
+        result.skipped++;
         return;
       }
-      // タイトルに時刻を書かず、カレンダーの予定時刻をそのまま使う書き方も正式に対応する
-      startTime = formatTime_(event.getStartTime());
-      endTime = formatTime_(event.getEndTime());
-    }
+      if (parsed.kind === 'error') {
+        result.errors.push(dateStr + ' 「' + title + '」: ' + parsed.reason);
+        return;
+      }
 
-    var workedHours = computeWorkedHours_(startTime, endTime, parsed.breakHours);
-    if (workedHours === null) {
-      result.errors.push(dateStr + ' 「' + title + '」: 実働時間を計算できませんでした');
-      return;
-    }
-    if (workedHours === 0) {
-      result.warnings.push(dateStr + ' 「' + title + '」: 実働時間が0時間になりました（休憩時間の記載を確認してください）');
-    }
+      var startTime = parsed.startTime;
+      var endTime = parsed.endTime;
+      if (!parsed.hasTimeRange) {
+        if (event.isAllDayEvent()) {
+          result.errors.push(
+            dateStr + ' 「' + title + '」: 終日予定でタイトルにも時刻がありません（例: 09:00-18:00）'
+          );
+          return;
+        }
+        // タイトルに時刻を書かず、カレンダーの予定時刻をそのまま使う書き方も正式に対応する
+        startTime = formatTime_(event.getStartTime());
+        endTime = formatTime_(event.getEndTime());
+      }
 
-    parsed.warnings.forEach(function (w) {
-      result.warnings.push(dateStr + ' 「' + title + '」: ' + w);
-    });
+      var workedHours = computeWorkedHours_(startTime, endTime, parsed.breakHours);
+      if (workedHours === null) {
+        result.errors.push(dateStr + ' 「' + title + '」: 実働時間を計算できませんでした');
+        return;
+      }
+      if (workedHours === 0) {
+        result.warnings.push(dateStr + ' 「' + title + '」: 実働時間が0時間になりました（休憩時間の記載を確認してください）');
+      }
 
-    result.entries.push({
-      // 繰り返し予定は getId() が全回で同じになるため、日付を足して一意にする
-      id: event.getId() + '#' + dateStr,
-      date: dateStr,
-      company_name: parsed.companyName,
-      start_time: startTime,
-      end_time: endTime,
-      break_hours: round2_(parsed.breakHours),
-      worked_hours: round2_(workedHours),
-      hourly_wage: parsed.hourlyWage,
-      estimated_amount: computeEstimatedAmount_(workedHours, parsed.hourlyWage),
-      reconciled: false,
-      source_title: title,
-      updated_at: now
+      parsed.warnings.forEach(function (w) {
+        result.warnings.push(dateStr + ' 「' + title + '」: ' + w);
+      });
+
+      result.entries.push({
+        // 繰り返し予定は getId() が全回で同じになるため、日付を足して一意にする
+        id: idPrefix + event.getId() + '#' + dateStr,
+        date: dateStr,
+        company_name: parsed.companyName,
+        start_time: startTime,
+        end_time: endTime,
+        break_hours: round2_(parsed.breakHours),
+        worked_hours: round2_(workedHours),
+        hourly_wage: parsed.hourlyWage,
+        estimated_amount: computeEstimatedAmount_(workedHours, parsed.hourlyWage),
+        reconciled: false,
+        source_title: title,
+        updated_at: now
+      });
     });
   });
 
@@ -96,48 +131,62 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
 }
 
 /**
- * 期間内の予定をまとめて1回で取得し、勤務予定だけを解析して返す。
+ * 期間内の予定を、CONFIG.calendarIds の全カレンダーからまとめて取得し、勤務予定だけを解析して返す。
  * シートには書き込まない（先読み用）。
  */
 function fetchPlannedShifts_(startDate, endDate) {
-  var events = getTargetCalendar_().getEvents(startDate, endDate);
   var result = { entries: [], skipped: 0, errors: [] };
 
-  events.forEach(function (event) {
-    var title = event.getTitle();
-    var parsed = parseWorkEventTitle_(title);
-    if (parsed.kind === 'skip') {
-      result.skipped++;
-      return;
-    }
-    var dateStr = formatDate_(event.getStartTime());
-    if (parsed.kind === 'error') {
-      result.errors.push(dateStr + ' 「' + title + '」: ' + parsed.reason);
+  getTargetCalendars_().forEach(function (source) {
+    if (!source.calendar) {
+      if (source.error) result.errors.push(source.error);
       return;
     }
 
-    var startTime = parsed.startTime;
-    var endTime = parsed.endTime;
-    if (!parsed.hasTimeRange) {
-      if (event.isAllDayEvent()) {
-        result.errors.push(dateStr + ' 「' + title + '」: 終日予定でタイトルにも時刻がありません');
+    var events;
+    try {
+      events = source.calendar.getEvents(startDate, endDate);
+    } catch (e) {
+      result.errors.push('カレンダー「' + source.key + '」の予定を読めませんでした: ' + e.message);
+      return;
+    }
+
+    events.forEach(function (event) {
+      var title = event.getTitle();
+      var parsed = parseWorkEventTitle_(title);
+      if (parsed.kind === 'skip') {
+        result.skipped++;
         return;
       }
-      startTime = formatTime_(event.getStartTime());
-      endTime = formatTime_(event.getEndTime());
-    }
+      var dateStr = formatDate_(event.getStartTime());
+      if (parsed.kind === 'error') {
+        result.errors.push(dateStr + ' 「' + title + '」: ' + parsed.reason);
+        return;
+      }
 
-    var workedHours = computeWorkedHours_(startTime, endTime, parsed.breakHours);
-    if (workedHours === null || workedHours === 0) return;
+      var startTime = parsed.startTime;
+      var endTime = parsed.endTime;
+      if (!parsed.hasTimeRange) {
+        if (event.isAllDayEvent()) {
+          result.errors.push(dateStr + ' 「' + title + '」: 終日予定でタイトルにも時刻がありません');
+          return;
+        }
+        startTime = formatTime_(event.getStartTime());
+        endTime = formatTime_(event.getEndTime());
+      }
 
-    result.entries.push({
-      date: dateStr,
-      company_name: parsed.companyName,
-      start_time: startTime,
-      end_time: endTime,
-      worked_hours: round2_(workedHours),
-      hourly_wage: parsed.hourlyWage,
-      estimated_amount: computeEstimatedAmount_(workedHours, parsed.hourlyWage)
+      var workedHours = computeWorkedHours_(startTime, endTime, parsed.breakHours);
+      if (workedHours === null || workedHours === 0) return;
+
+      result.entries.push({
+        date: dateStr,
+        company_name: parsed.companyName,
+        start_time: startTime,
+        end_time: endTime,
+        worked_hours: round2_(workedHours),
+        hourly_wage: parsed.hourlyWage,
+        estimated_amount: computeEstimatedAmount_(workedHours, parsed.hourlyWage)
+      });
     });
   });
 

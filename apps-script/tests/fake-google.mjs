@@ -224,8 +224,34 @@ function makeHtmlTemplate(content) {
   return template;
 }
 
-/** eventsByDate: { 'yyyy-MM-dd': [{id,title,...}] } */
-export function makeSandbox(eventsByDate) {
+const formatDate = (date, _tz, format) => {
+  const ymd = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const hm = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  if (format === 'yyyy-MM-dd') return ymd;
+  if (format === 'yyyy-MM') return ymd.slice(0, 7);
+  if (format === 'HH:mm') return hm;
+  return `${ymd} ${hm}:${pad(date.getSeconds())}`;
+};
+
+function makeFakeCalendar(eventsByDate) {
+  return {
+    getEventsForDay: (date) => (eventsByDate[formatDate(date, null, 'yyyy-MM-dd')] || []).map((e) => new FakeEvent(e)),
+    getEvents: (start, end) =>
+      Object.keys(eventsByDate)
+        .sort()
+        .reduce((all, key) => all.concat(eventsByDate[key]), [])
+        .filter((e) => e.start >= start && e.start < end)
+        .map((e) => new FakeEvent(e))
+  };
+}
+
+/**
+ * eventsByDate: { 'yyyy-MM-dd': [{id,title,...}] } … 既定カレンダー（primary）の予定
+ * otherCalendars: { 'カレンダーID': { 'yyyy-MM-dd': [...] } } … 共有カレンダーの予定。
+ *   未知の calendarId は getCalendarById が null を返す（＝見つからない扱い）。
+ */
+export function makeSandbox(eventsByDate, otherCalendars) {
+  otherCalendars = otherCalendars || {};
   const spreadsheet = new FakeSpreadsheet();
   const sentMail = [];
   const alerts = [];
@@ -248,15 +274,6 @@ export function makeSandbox(eventsByDate) {
     }
   };
 
-  const formatDate = (date, _tz, format) => {
-    const ymd = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-    const hm = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    if (format === 'yyyy-MM-dd') return ymd;
-    if (format === 'yyyy-MM') return ymd.slice(0, 7);
-    if (format === 'HH:mm') return hm;
-    return `${ymd} ${hm}:${pad(date.getSeconds())}`;
-  };
-
   let uuid = 0;
 
   return {
@@ -267,16 +284,8 @@ export function makeSandbox(eventsByDate) {
         getUi: () => ui
       },
       CalendarApp: {
-        getDefaultCalendar: () => ({
-          getEventsForDay: (date) => (eventsByDate[formatDate(date, null, 'yyyy-MM-dd')] || []).map((e) => new FakeEvent(e)),
-          getEvents: (start, end) =>
-            Object.keys(eventsByDate)
-              .sort()
-              .reduce((all, key) => all.concat(eventsByDate[key]), [])
-              .filter((e) => e.start >= start && e.start < end)
-              .map((e) => new FakeEvent(e))
-        }),
-        getCalendarById: () => null
+        getDefaultCalendar: () => makeFakeCalendar(eventsByDate),
+        getCalendarById: (id) => (otherCalendars[id] ? makeFakeCalendar(otherCalendars[id]) : null)
       },
       Utilities: {
         formatDate,

@@ -419,6 +419,81 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   check('期間取り込み: それでも重複しない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 4);
 }
 
+/* --- 複数アカウントのカレンダーをまとめて取り込む --- */
+{
+  const DAY = '2026-08-20';
+  const primaryEvents = {
+    [DAY]: [
+      {
+        id: 'evt-primary',
+        title: '[Kakedas] 09:00-18:00 休憩1h 時給1226円',
+        start: new Date(2026, 7, 20, 9, 0),
+        end: new Date(2026, 7, 20, 18, 0)
+      }
+    ]
+  };
+  const otherEvents = {
+    'sub-account@example.com': {
+      [DAY]: [
+        {
+          id: 'evt-primary', // 別カレンダーの偶然の同名IDでも衝突しないことを見る
+          title: '[バイトレ] 13:00-17:00 休憩なし 時給1700円',
+          start: new Date(2026, 7, 20, 13, 0),
+          end: new Date(2026, 7, 20, 17, 0)
+        }
+      ]
+    }
+  };
+  const multiEnv = makeSandbox(primaryEvents, otherEvents);
+  const multiCtx = vm.createContext(multiEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), multiCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), multiCtx, { filename: file });
+  }
+  const mRun = (expr) => vm.runInContext(expr, multiCtx);
+  mRun('ensureSheets_()');
+
+  // 共有していない/設定していない状態では primary の予定だけが入る
+  const before = mRun(`importDateRange_(new Date(2026, 7, 20), new Date(2026, 7, 20))`);
+  check('複数カレンダー: 未設定なら既定カレンダーのみ', before.entries.length, 1);
+  check('複数カレンダー: 既定カレンダーの予定', before.entries[0].company_name, 'Kakedas');
+
+  // CONFIG.calendarIds に共有カレンダーを追加すると、両方の予定が入る
+  mRun(`CONFIG.calendarIds = ['primary', 'sub-account@example.com']`);
+  mRun('getSheet_(SHEETS.CALENDAR).clear(); ensureSheets_()');
+  const both = mRun(`importDateRange_(new Date(2026, 7, 20), new Date(2026, 7, 20))`);
+  check('複数カレンダー: 両方のカレンダーから取り込む', both.entries.length, 2);
+  check(
+    '複数カレンダー: 会社名がどちらも入る',
+    both.entries.map((e) => e.company_name).sort(),
+    ['Kakedas', 'バイトレ']
+  );
+  check(
+    '複数カレンダー: 同名イベントIDでも行IDが衝突しない',
+    mRun('readTable_(SHEETS.CALENDAR).rows.map(function(r){return r.id;})'),
+    ['evt-primary#2026-08-20', 'sub-account@example.com:evt-primary#2026-08-20']
+  );
+  check(
+    '複数カレンダー: 金額もそれぞれ正しく計算される',
+    mRun('readTable_(SHEETS.CALENDAR).rows.map(function(r){return r.estimated_amount;})').sort((a, b) => a - b),
+    [6800, 9808]
+  );
+
+  // 共有されていない/存在しないカレンダーIDを指定した場合、エラーを添えつつ他は取り込む
+  mRun(`CONFIG.calendarIds = ['primary', 'not-shared@example.com']`);
+  mRun('getSheet_(SHEETS.CALENDAR).clear(); ensureSheets_()');
+  const partial = mRun(`importDateRange_(new Date(2026, 7, 20), new Date(2026, 7, 20))`);
+  check('複数カレンダー: 読めないカレンダーがあっても他は取り込める', partial.entries.length, 1);
+  check('複数カレンダー: 読めないカレンダーはエラーとして報告', partial.errors.length > 0, true);
+  check('複数カレンダー: エラーにカレンダーIDを含める', partial.errors[0].indexOf('not-shared@example.com') >= 0, true);
+
+  // 先読み（見込み）も同じ仕組みで複数カレンダーを見る
+  mRun(`CONFIG.calendarIds = ['primary', 'sub-account@example.com']`);
+  const planned = mRun(`fetchPlannedShifts_(new Date(2026, 7, 20), new Date(2026, 7, 21))`);
+  check('複数カレンダー: 見込みの先読みも複数カレンダーを見る', planned.entries.length, 2);
+}
+
 /* --- この先の見込みと調整アドバイス --- */
 {
   const shift = (date, h, m, hours, company, wage) => ({
