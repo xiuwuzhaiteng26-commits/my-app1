@@ -22,7 +22,7 @@
  */
 var CONFIG = {
   /** 設定そのものの最終更新日（年度更新したら必ず更新する） */
-  configLastUpdated: '2026-08-22',
+  configLastUpdated: '2026-08-28',
 
   /** タイムゾーン（日付の切れ目の判定に使う） */
   timeZone: 'Asia/Tokyo',
@@ -94,14 +94,19 @@ var CONFIG = {
         name: '130万円',
         amount: 1300000,
         applicableYear: 2026,
-        lastUpdated: '2026-08-22',
-        note: '社会保険の被扶養者認定に関する壁の目安（勤務先によっては106万円が基準になる場合がある）'
+        lastUpdated: '2026-08-28',
+        note:
+          '健康保険の被扶養者認定の収入要件。勤務先の規模によっては106万円で社会保険加入の' +
+          '対象になる場合がある。※19歳以上23歳未満は2025年10月から150万円に緩和されているため、' +
+          '該当する場合はこの行を150万円に書き換えること（日本年金機構）'
       },
       {
-        name: '150万円',
+        name: '150万円（親の控除）',
         amount: 1500000,
         applicableYear: 2026,
         lastUpdated: '2026-08-28',
+        /** 制度変更や名前の整理で置き換わった、古い壁の名前 */
+        replaces: ['150万円'],
         note:
           '親の特定親族特別控除（63万円）が満額のままでいられる壁の目安（2025年度税制改正、19〜22歳の子が対象）。' +
           'これを超えても直ちに0円にはならず、188万円まで段階的に減っていく。学生本人の税金・社会保険とは別の、' +
@@ -553,7 +558,7 @@ function getSheet_(name) {
  * シートの構成（名前・見出し・初期データ）のバージョン。
  * 列や壁を増やしたらこの値を上げること。次回の実行で移行処理が1度だけ走る。
  */
-var SCHEMA_VERSION = '2026-08-28';
+var SCHEMA_VERSION = '2026-08-28b';
 
 /** スクリプトプロパティ（使えない環境では null） */
 function getScriptProperties_() {
@@ -638,12 +643,32 @@ function refreshHeaderLabels_() {
 function seedWallThresholds_() {
   var existing = {};
   readTable_(SHEETS.WALLS).rows.forEach(function (r) {
-    existing[String(r.name).trim()] = true;
+    existing[String(r.name).trim()] = r;
   });
   var missing = CONFIG.walls.thresholds.filter(function (w) {
     return !existing[w.name];
   });
   if (missing.length === 0) return;
+
+  // 制度が変わって置き換わった古い壁は、新しい壁を足すときに取り除く。
+  // 新しい壁が既にある場合は何もしないので、あとから自分で足した行は消えない。
+  var sheet = getSheet_(SHEETS.WALLS);
+  var removeRowIndexes = [];
+  missing.forEach(function (w) {
+    (w.replaces || []).forEach(function (oldName) {
+      var row = existing[String(oldName).trim()];
+      if (row && removeRowIndexes.indexOf(row._rowIndex) < 0) removeRowIndexes.push(row._rowIndex);
+    });
+  });
+  removeRowIndexes
+    .sort(function (a, b) {
+      return b - a;
+    })
+    .forEach(function (rowIndex) {
+      sheet.deleteRow(rowIndex);
+    });
+  if (removeRowIndexes.length > 0) invalidateTable_(SHEETS.WALLS);
+
   var rows = missing.map(function (w) {
     return {
       name: w.name,

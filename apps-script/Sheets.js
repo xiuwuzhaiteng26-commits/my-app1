@@ -222,7 +222,7 @@ function getSheet_(name) {
  * シートの構成（名前・見出し・初期データ）のバージョン。
  * 列や壁を増やしたらこの値を上げること。次回の実行で移行処理が1度だけ走る。
  */
-var SCHEMA_VERSION = '2026-08-28';
+var SCHEMA_VERSION = '2026-08-28b';
 
 /** スクリプトプロパティ（使えない環境では null） */
 function getScriptProperties_() {
@@ -307,12 +307,32 @@ function refreshHeaderLabels_() {
 function seedWallThresholds_() {
   var existing = {};
   readTable_(SHEETS.WALLS).rows.forEach(function (r) {
-    existing[String(r.name).trim()] = true;
+    existing[String(r.name).trim()] = r;
   });
   var missing = CONFIG.walls.thresholds.filter(function (w) {
     return !existing[w.name];
   });
   if (missing.length === 0) return;
+
+  // 制度が変わって置き換わった古い壁は、新しい壁を足すときに取り除く。
+  // 新しい壁が既にある場合は何もしないので、あとから自分で足した行は消えない。
+  var sheet = getSheet_(SHEETS.WALLS);
+  var removeRowIndexes = [];
+  missing.forEach(function (w) {
+    (w.replaces || []).forEach(function (oldName) {
+      var row = existing[String(oldName).trim()];
+      if (row && removeRowIndexes.indexOf(row._rowIndex) < 0) removeRowIndexes.push(row._rowIndex);
+    });
+  });
+  removeRowIndexes
+    .sort(function (a, b) {
+      return b - a;
+    })
+    .forEach(function (rowIndex) {
+      sheet.deleteRow(rowIndex);
+    });
+  if (removeRowIndexes.length > 0) invalidateTable_(SHEETS.WALLS);
+
   var rows = missing.map(function (w) {
     return {
       name: w.name,

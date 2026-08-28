@@ -777,8 +777,59 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   check(
     '移行: 130万円・150万円が後から追加される',
     wallRows.map((r) => r.name).sort(),
-    ['123万円', '130万円', '150万円']
+    ['123万円', '130万円', '150万円（親の控除）']
   );
+}
+
+/* --- 制度変更で置き換わった壁の移行 --- */
+{
+  const wallEnv = makeSandbox({});
+  const wallCtx = vm.createContext(wallEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), wallCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), wallCtx, { filename: file });
+  }
+  const wRun = (expr) => vm.runInContext(expr, wallCtx);
+  wRun('ensureSheets_({ force: true })');
+
+  // 旧名の「150万円」だけがある状態を作る
+  wRun(`getSheet_(SHEETS.WALLS).clear(); invalidateSheetCaches_();`);
+  wRun(`ensureSheets_({ force: true })`);
+  const seeded = wRun('readTable_(SHEETS.WALLS).rows.map(function(r){return r.name;}).sort()');
+  check('壁の移行: 初期状態は3つ', seeded, ['123万円', '130万円', '150万円（親の控除）']);
+
+  // 旧名で入っている場合、新しい壁を足すときに置き換わる
+  wRun(`getSheet_(SHEETS.WALLS).clear(); invalidateSheetCaches_(); ensureSheets_({ force: true });`);
+  wRun(`
+    var sheet = getSheet_(SHEETS.WALLS);
+    sheet.clear();
+    invalidateSheetCaches_();
+    getSheet_(SHEETS.WALLS);
+    refreshHeaderLabels_();
+    appendRows_(SHEETS.WALLS, [
+      { name: '123万円', amount: 1230000, applicable_year: 2026, last_updated: '2026-08-22', note: '自分のメモ' },
+      { name: '150万円', amount: 1500000, applicable_year: 2026, last_updated: '2026-08-22', note: '旧名' }
+    ]);
+  `);
+  wRun('seedWallThresholds_()');
+  const migrated = wRun('readTable_(SHEETS.WALLS).rows');
+  check(
+    '壁の移行: 旧名「150万円」が「150万円（親の控除）」に置き換わる',
+    migrated.map((r) => r.name).sort(),
+    ['123万円', '130万円', '150万円（親の控除）']
+  );
+  check('壁の移行: 重複して残らない', migrated.filter((r) => String(r.name) === '150万円').length, 0);
+  check(
+    '壁の移行: 自分で書いた既存の壁のメモは消えない',
+    migrated.filter((r) => r.name === '123万円')[0].note,
+    '自分のメモ'
+  );
+
+  // 2回目以降は何も起きない
+  const before = wRun('readTable_(SHEETS.WALLS).rows.length');
+  wRun('seedWallThresholds_()');
+  check('壁の移行: 繰り返し実行しても変わらない', wRun('readTable_(SHEETS.WALLS).rows.length'), before);
 }
 
 console.log(details.join('\n'));
