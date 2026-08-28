@@ -490,8 +490,44 @@ function getSpreadsheet_() {
   return SpreadsheetApp.openById(id);
 }
 
+/**
+ * 1回の実行の中だけ有効なキャッシュ。
+ *
+ * Apps Script はシートの読み書き1回ごとに往復が発生し、これが体感速度の大半を占める。
+ * 同じ実行の中で同じシートを何度も読み直さないようにするためのもの。
+ * Apps Script は実行のたびにスクリプトを読み直すので、実行をまたいで残ることはない。
+ * 書き込みを行った表は必ず invalidateTable_ で捨てること。
+ */
+var SHEET_CACHE = {};
+var TABLE_CACHE = {};
+
+/** 表のキャッシュを捨てる（name 省略で全部） */
+function invalidateTable_(name) {
+  if (name === undefined) TABLE_CACHE = {};
+  else delete TABLE_CACHE[name];
+}
+
+/** シート取得・表読み込みのキャッシュをまとめて捨てる */
+function invalidateSheetCaches_() {
+  SHEET_CACHE = {};
+  TABLE_CACHE = {};
+}
+
+/**
+ * 1回の実行の始まりを宣言する。キャッシュを全部捨てて、必ず最新のデータから始める。
+ *
+ * Apps Script は実行ごとにスクリプトを読み直すので実際はキャッシュも消えているが、
+ * 明示しておくことで「キャッシュが実行をまたいで残らない」ことを保証し、
+ * テストでも本番と同じ条件で測れるようにする。
+ */
+function beginExecution_() {
+  invalidateSheetCaches_();
+  invalidateCalendarCache_();
+}
+
 /** シートを取得（無ければヘッダー付きで作成） */
 function getSheet_(name) {
+  if (SHEET_CACHE[name]) return SHEET_CACHE[name];
   var ss = getSpreadsheet_();
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
@@ -507,17 +543,52 @@ function getSheet_(name) {
         sheet.getRange(2, index + 1, sheet.getMaxRows() - 1, 1).setNumberFormat('@');
       });
     }
+    invalidateTable_(name);
   }
+  SHEET_CACHE[name] = sheet;
   return sheet;
 }
 
-/** 全シートを用意し、初期データ（設定値）を流し込む */
-function ensureSheets_() {
+/**
+ * シートの構成（名前・見出し・初期データ）のバージョン。
+ * 列や壁を増やしたらこの値を上げること。次回の実行で移行処理が1度だけ走る。
+ */
+var SCHEMA_VERSION = '2026-08-28';
+
+/** スクリプトプロパティ（使えない環境では null） */
+function getScriptProperties_() {
+  try {
+    return PropertiesService.getScriptProperties();
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 全シートを用意し、初期データ（設定値）を流し込む。
+ *
+ * 名前の付け替え・見出しの貼り直し・壁の初期投入は、毎回やると
+ * シートの読み書きが十数回増えてアプリの表示が目に見えて遅くなる。
+ * 一度済ませたらスクリプトプロパティに記録し、SCHEMA_VERSION が
+ * 変わったときだけやり直す。
+ *
+ * options.force を true にすると記録を無視して必ず全部やり直す
+ * （メニューの「① 初期セットアップ」はこちらを使う）。
+ */
+function ensureSheets_(options) {
   var ss = getSpreadsheet_();
-  migrateLegacySheetNames_();
+  var props = getScriptProperties_();
+  var force = !!(options && options.force);
+  var upToDate = !force && props !== null && props.getProperty('SCHEMA_VERSION') === SCHEMA_VERSION;
+
+  if (!upToDate) migrateLegacySheetNames_();
+
   Object.keys(SHEETS).forEach(function (key) {
     getSheet_(SHEETS[key]);
   });
+
+  if (upToDate) return;
+
   refreshHeaderLabels_();
   seedWallThresholds_();
   var first = ss.getSheets()[0];
@@ -528,6 +599,8 @@ function ensureSheets_() {
   var summary = ss.getSheetByName(SHEETS.SUMMARY);
   ss.setActiveSheet(summary);
   ss.moveActiveSheet(1);
+
+  if (props) props.setProperty('SCHEMA_VERSION', SCHEMA_VERSION);
 }
 
 /** 英語名で作られた既存のシートを日本語名に付け替える（中身はそのまま） */
@@ -552,6 +625,7 @@ function refreshHeaderLabels_() {
     });
     if (!same) {
       sheet.getRange(1, 1, 1, labels.length).setValues([labels]).setFontWeight('bold');
+      invalidateTable_(name);
     }
   });
 }
@@ -587,10 +661,14 @@ function seedWallThresholds_() {
  * 日付・時刻セルは文字列に正規化して返す（表示形式の違いを吸収するため）。
  */
 function readTable_(name) {
+  if (TABLE_CACHE[name]) return TABLE_CACHE[name];
   var sheet = getSheet_(name);
   var headers = SCHEMA[name] || [];
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { headers: headers, rows: [] };
+  if (lastRow < 2) {
+    TABLE_CACHE[name] = { headers: headers, rows: [] };
+    return TABLE_CACHE[name];
+  }
   var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
   var rows = [];
   values.forEach(function (line, i) {
@@ -604,7 +682,8 @@ function readTable_(name) {
     });
     rows.push(obj);
   });
-  return { headers: headers, rows: rows };
+  TABLE_CACHE[name] = { headers: headers, rows: rows };
+  return TABLE_CACHE[name];
 }
 
 /** オブジェクト配列をシート末尾に追記 */
@@ -618,6 +697,7 @@ function appendRows_(name, objects) {
     });
   });
   sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
+  invalidateTable_(name);
 }
 
 /**
@@ -658,6 +738,7 @@ function upsertRows_(name, objects, keyField, mergeFn) {
   if (toAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, headers.length).setValues(toAppend);
   }
+  if (updated > 0 || toAppend.length > 0) invalidateTable_(name);
   return { updated: updated, inserted: toAppend.length, unchanged: unchanged };
 }
 
@@ -684,6 +765,7 @@ function writeRowAt_(name, rowIndex, obj) {
     return obj[h] === undefined ? '' : obj[h];
   });
   sheet.getRange(rowIndex, 1, 1, headers.length).setValues([line]);
+  invalidateTable_(name);
 }
 
 /** 実行ログに1行追記（直近500件だけ残す） */
@@ -692,6 +774,7 @@ function writeLog_(kind, level, message) {
   sheet.appendRow([formatDateTime_(new Date()), kind, level, message]);
   var lastRow = sheet.getLastRow();
   if (lastRow > 501) sheet.deleteRows(2, lastRow - 501);
+  invalidateTable_(SHEETS.LOG);
 }
 
 /* ======================= Parser.js ======================= */
@@ -1176,12 +1259,27 @@ function evaluateReconciliation_(estimatedAmount, actualAmount) {
 /** Google カレンダーから、その日（0:00〜23:59）の勤務予定を取り出す */
 
 /**
+ * 1回の実行の中だけ有効なカレンダーのキャッシュ。
+ * カレンダーの取得も予定の読み込みも1回ごとに往復が発生するため、
+ * 同じ実行の中では取得済みの結果を使い回す。
+ */
+var CALENDAR_SOURCES_CACHE = null;
+var CALENDAR_EVENTS_CACHE = {};
+
+/** カレンダー関連のキャッシュを捨てる */
+function invalidateCalendarCache_() {
+  CALENDAR_SOURCES_CACHE = null;
+  CALENDAR_EVENTS_CACHE = {};
+}
+
+/**
  * CONFIG.calendarIds に列挙された全カレンダーを解決する。
  * 見つからない/読めないカレンダーはエラーを添えて返す（他のカレンダーの取り込みは止めない）。
  */
 function getTargetCalendars_() {
+  if (CALENDAR_SOURCES_CACHE) return CALENDAR_SOURCES_CACHE;
   var ids = CONFIG.calendarIds && CONFIG.calendarIds.length ? CONFIG.calendarIds : ['primary'];
-  return ids.map(function (rawId) {
+  var resolved = ids.map(function (rawId) {
     var key = String(rawId || 'primary').trim() || 'primary';
     var calendar = null;
     var error = null;
@@ -1194,6 +1292,54 @@ function getTargetCalendars_() {
       error = 'カレンダー「' + key + '」を読み込めませんでした: ' + e.message;
     }
     return { key: key, calendar: calendar, error: error };
+  });
+  CALENDAR_SOURCES_CACHE = resolved;
+  return resolved;
+}
+
+/**
+ * 予定を取得する。すでに取得済みの範囲に収まっていれば、その結果から絞り込んで返す。
+ *
+ * アプリを開くと「過去1ヶ月の取り込み」と「先1ヶ月の見込み」で2回カレンダーを
+ * 読むことになるが、prefetchCalendar_ で両方を含む範囲を先に1回読んでおけば、
+ * 実際のカレンダー取得は1回で済む。
+ */
+function getCalendarEvents_(source, startDate, endDate) {
+  var cached = CALENDAR_EVENTS_CACHE[source.key];
+  if (cached && cached.from <= startDate.getTime() && cached.to >= endDate.getTime()) {
+    return cached.events.filter(function (event) {
+      var t = event.getStartTime().getTime();
+      return t >= startDate.getTime() && t < endDate.getTime();
+    });
+  }
+  var events = source.calendar.getEvents(startDate, endDate);
+  CALENDAR_EVENTS_CACHE[source.key] = {
+    from: startDate.getTime(),
+    to: endDate.getTime(),
+    events: events
+  };
+  return events;
+}
+
+/**
+ * これから必要になる期間をまとめて1回だけ読んでおく。
+ * 取り込み（過去）と見込み（未来）の両方を含む範囲を一度に取る。
+ */
+function prefetchCalendar_(today) {
+  var from = new Date(today.getTime());
+  from.setDate(from.getDate() - Math.max(0, CONFIG.app.autoImportDays - 1));
+  from.setHours(0, 0, 0, 0);
+  var to = new Date(today.getTime());
+  to.setDate(to.getDate() + CONFIG.forecast.lookaheadDays + 1);
+  to.setHours(0, 0, 0, 0);
+
+  getTargetCalendars_().forEach(function (source) {
+    if (!source.calendar) return;
+    try {
+      getCalendarEvents_(source, from, to);
+    } catch (e) {
+      // ここでの失敗は後続の取得時に改めて報告されるので、黙って進める
+    }
   });
 }
 
@@ -1236,7 +1382,7 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
 
     var events;
     try {
-      events = source.calendar.getEvents(startDate, endDate);
+      events = getCalendarEvents_(source, startDate, endDate);
     } catch (e) {
       result.errors.push('カレンダー「' + source.key + '」の予定を読めませんでした: ' + e.message);
       return;
@@ -1320,7 +1466,7 @@ function fetchPlannedShifts_(startDate, endDate) {
 
     var events;
     try {
-      events = source.calendar.getEvents(startDate, endDate);
+      events = getCalendarEvents_(source, startDate, endDate);
     } catch (e) {
       result.errors.push('カレンダー「' + source.key + '」の予定を読めませんでした: ' + e.message);
       return;
@@ -2309,11 +2455,14 @@ function saveReconciliation(payload) {
 function markReconciled_(yearMonth, companyName) {
   var sheet = getSheet_(SHEETS.CALENDAR);
   var col = SCHEMA[SHEETS.CALENDAR].indexOf('reconciled') + 1;
+  var changed = false;
   readTable_(SHEETS.CALENDAR).rows.forEach(function (r) {
     if (yearMonthOfDateString_(toDateString_(r.date)) !== yearMonth) return;
     if (companyName !== RECONCILE_ALL && String(r.company_name).trim() !== companyName) return;
     sheet.getRange(r._rowIndex, col).setValue(true);
+    changed = true;
   });
+  if (changed) invalidateTable_(SHEETS.CALENDAR);
 }
 
 /** シートに直接入力された actual_amount から差分を計算し直す */
@@ -2573,6 +2722,7 @@ function removeSeededDuplicates_(entries) {
     .forEach(function (rowIndex) {
       sheet.deleteRow(rowIndex);
     });
+  if (remove.length > 0) invalidateTable_(SHEETS.CALENDAR);
   return remove.length;
 }
 
@@ -2593,7 +2743,9 @@ function doGet() {
   var template = htmlTemplate_('App');
   var payload;
   try {
+    beginExecution_();
     ensureSheets_();
+    prefetchCalendar_(new Date());
     autoImportRecent_();
     payload = buildAppData_();
   } catch (e) {
@@ -2745,7 +2897,9 @@ function buildAppData_() {
 
 /** 再読み込み（答え合わせの再計算つき） */
 function appRefresh() {
+  beginExecution_();
   ensureSheets_();
+  prefetchCalendar_(new Date());
   autoImportRecent_();
   recalcReconciliations_();
   writeSummarySheet_(buildSnapshot_(new Date(), null));
@@ -2754,12 +2908,14 @@ function appRefresh() {
 
 /** 今日の予定をいますぐ取り込む */
 function appRunToday() {
+  beginExecution_();
   runAnalysisForDate_(new Date());
   return buildAppData_();
 }
 
 /** 指定した日を取り込み直す */
 function appImportDate(dateText) {
+  beginExecution_();
   var date = parseDateInput_(dateText);
   if (!date) throw new Error('日付は yyyy-MM-dd の形式で入力してください');
   ensureSheets_();
@@ -2775,12 +2931,14 @@ function appImportDate(dateText) {
 
 /** 月次の答え合わせを保存 */
 function appSaveReconciliation(payload) {
+  beginExecution_();
   var result = saveReconciliation(payload);
   return { data: buildAppData_(), result: result };
 }
 
 /** 手入力の収入を追加 */
 function appAddManualIncome(payload) {
+  beginExecution_();
   ensureSheets_();
   var sourceName = String(payload.sourceName || '').trim();
   var period = String(payload.period || '').trim();
@@ -2809,6 +2967,7 @@ function appAddManualIncome(payload) {
 
 /** 勤務先ごとの月間上限を更新（会社から正式な回答が来たとき） */
 function appSaveCompanyLimit(payload) {
+  beginExecution_();
   ensureSheets_();
   var companyName = String(payload.companyName || '').trim();
   var limit = toNumber_(payload.limit);
@@ -2882,7 +3041,9 @@ function onOpen() {
 
 /** ① 初期セットアップ */
 function setupSheets() {
-  ensureSheets_();
+  beginExecution_();
+  // 利用者が明示的に実行したときは、記録を無視して移行処理を必ずやり直す
+  ensureSheets_({ force: true });
   var snapshot = buildSnapshot_(new Date(), null);
   writeSummarySheet_(snapshot);
   writeLog_('setup', '正常', 'シートを初期化しました');
@@ -2916,8 +3077,10 @@ function removeDailyTrigger() {
 /** 毎日23:30にトリガーから呼ばれる本体 */
 function dailyJob() {
   try {
+    beginExecution_();
     // 当日だけでなく直近数日分を見直す（予定を後から書き足しても拾えるように）
     var today = new Date();
+    prefetchCalendar_(today);
     var from = new Date(today.getTime());
     from.setDate(from.getDate() - (CONFIG.daily.lookbackDays - 1));
     runAnalysisForRange_(from, today);

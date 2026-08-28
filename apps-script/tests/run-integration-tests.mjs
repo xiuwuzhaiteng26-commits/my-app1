@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { makeSandbox } from './fake-google.mjs';
+import { makeSandbox, apiCalls } from './fake-google.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -152,7 +152,9 @@ check('勤務先: 暫定上限で自動登録', run('readTable_(SHEETS.LIMITS).r
 ]);
 
 /* --- 再取り込みで重複しないこと --- */
-run('getSheet_(SHEETS.CALENDAR).getRange(2, 10).setValue(true)'); // reconciled を立てておく
+// 利用者がスプレッドシート上で手動でチェックを入れた状況を再現する。
+// ヘルパー経由でない直接の書き込みなので、読み込みキャッシュは明示的に捨てる。
+run('getSheet_(SHEETS.CALENDAR).getRange(2, 10).setValue(true); invalidateTable_(SHEETS.CALENDAR);');
 run('importDateRange_(__target, __target)');
 const calRows2 = run('readTable_(SHEETS.CALENDAR).rows');
 check('再取り込み: 重複しない', calRows2.length, 2);
@@ -460,8 +462,8 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   check('複数カレンダー: 既定カレンダーの予定', before.entries[0].company_name, 'Kakedas');
 
   // CONFIG.calendarIds に共有カレンダーを追加すると、両方の予定が入る
-  mRun(`CONFIG.calendarIds = ['primary', 'sub-account@example.com']`);
-  mRun('getSheet_(SHEETS.CALENDAR).clear(); ensureSheets_()');
+  mRun(`invalidateCalendarCache_(); CONFIG.calendarIds = ['primary', 'sub-account@example.com']`);
+  mRun('getSheet_(SHEETS.CALENDAR).clear(); invalidateSheetCaches_(); ensureSheets_({ force: true })');
   const both = mRun(`importDateRange_(new Date(2026, 7, 20), new Date(2026, 7, 20))`);
   check('複数カレンダー: 両方のカレンダーから取り込む', both.entries.length, 2);
   check(
@@ -481,15 +483,15 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   );
 
   // 共有されていない/存在しないカレンダーIDを指定した場合、エラーを添えつつ他は取り込む
-  mRun(`CONFIG.calendarIds = ['primary', 'not-shared@example.com']`);
-  mRun('getSheet_(SHEETS.CALENDAR).clear(); ensureSheets_()');
+  mRun(`invalidateCalendarCache_(); CONFIG.calendarIds = ['primary', 'not-shared@example.com']`);
+  mRun('getSheet_(SHEETS.CALENDAR).clear(); invalidateSheetCaches_(); ensureSheets_({ force: true })');
   const partial = mRun(`importDateRange_(new Date(2026, 7, 20), new Date(2026, 7, 20))`);
   check('複数カレンダー: 読めないカレンダーがあっても他は取り込める', partial.entries.length, 1);
   check('複数カレンダー: 読めないカレンダーはエラーとして報告', partial.errors.length > 0, true);
   check('複数カレンダー: エラーにカレンダーIDを含める', partial.errors[0].indexOf('not-shared@example.com') >= 0, true);
 
   // 先読み（見込み）も同じ仕組みで複数カレンダーを見る
-  mRun(`CONFIG.calendarIds = ['primary', 'sub-account@example.com']`);
+  mRun(`invalidateCalendarCache_(); CONFIG.calendarIds = ['primary', 'sub-account@example.com']`);
   const planned = mRun(`fetchPlannedShifts_(new Date(2026, 7, 20), new Date(2026, 7, 21))`);
   check('複数カレンダー: 見込みの先読みも複数カレンダーを見る', planned.entries.length, 2);
 }
@@ -664,6 +666,73 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   check('一括取り込み: 置き換わっても合計は同じ', afterImport.reduce((sum, r) => sum + Number(r.estimated_amount), 0), 42000);
   seedRun('importSeedData()');
   check('一括取り込み: 取り込み済みの勤務は上書きしない', seedRun('readTable_(SHEETS.CALENDAR).rows.length'), 5);
+}
+
+/* --- アプリの表示速度（Google API の往復回数） --- */
+{
+  // Apps Script はシート・カレンダーへの往復1回ごとに待ち時間が発生し、
+  // それが体感速度をほぼ決める。全シートにデータが入った現実的な状態で、
+  // アプリを開いたときの往復回数が増えていないことを見張る。
+  const now = new Date();
+  const perfEvents = {};
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 15 + i);
+    if (i % 2 !== 0) continue;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    perfEvents[key] = [
+      {
+        id: `perf-${i}`,
+        title: '[会社P] 09:00-18:00 休憩1h 時給1200円',
+        start: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 9, 0),
+        end: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 18, 0)
+      }
+    ];
+  }
+
+  const perfEnv = makeSandbox(perfEvents);
+  const perfCtx = vm.createContext(perfEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), perfCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), perfCtx, { filename: file });
+  }
+  const perfRun = (expr) => vm.runInContext(expr, perfCtx);
+
+  perfRun('setupSheets()');
+  // 全シートにデータがある状態にする
+  perfRun(`appendRows_(SHEETS.MANUAL, [{
+    id: 'p1', source_name: 'テスト', income_category: '給与所得', period: '2026-03',
+    amount: 100000, expenses: 0, note: '', updated_at: ''
+  }])`);
+  perfRun(`appendRows_(SHEETS.RECONCILE, [{
+    id: 'r1', year_month: '2026-07', company_name: '会社P', actual_amount: 100000,
+    estimated_amount: 100000, diff: 0, diff_rate: '0%', status: 'OK', note: '', entered_at: ''
+  }])`);
+  perfRun('doGet()'); // 1回目で取り込みを済ませる
+
+  apiCalls.reset();
+  perfRun('doGet()');
+
+  check('表示速度: カレンダーの取得は1回だけ', apiCalls.calendarFetch, 1);
+  check('表示速度: 変更が無ければシートに書き込まない', apiCalls.sheetWrite, 0);
+  check('表示速度: シート読み取りは表の数（7）以下', apiCalls.sheetRead <= 7, true);
+  check('表示速度: 往復の合計は8回以下', apiCalls.total <= 8, true);
+
+  // 同じ表を何度読んでも往復は1回だけであること
+  apiCalls.reset();
+  perfRun('beginExecution_(); readTable_(SHEETS.CALENDAR); readTable_(SHEETS.CALENDAR); readTable_(SHEETS.CALENDAR);');
+  check('表示速度: 同じ表の読み直しは往復しない', apiCalls.sheetRead, 1);
+
+  // 書き込んだら必ず読み直すこと（古いまま返さない）
+  perfRun(`appendRows_(SHEETS.MANUAL, [{
+    id: 'p2', source_name: '追加分', income_category: '給与所得', period: '2026-04',
+    amount: 50000, expenses: 0, note: '', updated_at: ''
+  }])`);
+  check(
+    '表示速度: 書き込み後は最新を返す',
+    perfRun('readTable_(SHEETS.MANUAL).rows.length'),
+    2
+  );
 }
 
 /* --- 英語シート名からの移行 --- */

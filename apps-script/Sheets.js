@@ -159,8 +159,44 @@ function getSpreadsheet_() {
   return SpreadsheetApp.openById(id);
 }
 
+/**
+ * 1回の実行の中だけ有効なキャッシュ。
+ *
+ * Apps Script はシートの読み書き1回ごとに往復が発生し、これが体感速度の大半を占める。
+ * 同じ実行の中で同じシートを何度も読み直さないようにするためのもの。
+ * Apps Script は実行のたびにスクリプトを読み直すので、実行をまたいで残ることはない。
+ * 書き込みを行った表は必ず invalidateTable_ で捨てること。
+ */
+var SHEET_CACHE = {};
+var TABLE_CACHE = {};
+
+/** 表のキャッシュを捨てる（name 省略で全部） */
+function invalidateTable_(name) {
+  if (name === undefined) TABLE_CACHE = {};
+  else delete TABLE_CACHE[name];
+}
+
+/** シート取得・表読み込みのキャッシュをまとめて捨てる */
+function invalidateSheetCaches_() {
+  SHEET_CACHE = {};
+  TABLE_CACHE = {};
+}
+
+/**
+ * 1回の実行の始まりを宣言する。キャッシュを全部捨てて、必ず最新のデータから始める。
+ *
+ * Apps Script は実行ごとにスクリプトを読み直すので実際はキャッシュも消えているが、
+ * 明示しておくことで「キャッシュが実行をまたいで残らない」ことを保証し、
+ * テストでも本番と同じ条件で測れるようにする。
+ */
+function beginExecution_() {
+  invalidateSheetCaches_();
+  invalidateCalendarCache_();
+}
+
 /** シートを取得（無ければヘッダー付きで作成） */
 function getSheet_(name) {
+  if (SHEET_CACHE[name]) return SHEET_CACHE[name];
   var ss = getSpreadsheet_();
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
@@ -176,17 +212,52 @@ function getSheet_(name) {
         sheet.getRange(2, index + 1, sheet.getMaxRows() - 1, 1).setNumberFormat('@');
       });
     }
+    invalidateTable_(name);
   }
+  SHEET_CACHE[name] = sheet;
   return sheet;
 }
 
-/** 全シートを用意し、初期データ（設定値）を流し込む */
-function ensureSheets_() {
+/**
+ * シートの構成（名前・見出し・初期データ）のバージョン。
+ * 列や壁を増やしたらこの値を上げること。次回の実行で移行処理が1度だけ走る。
+ */
+var SCHEMA_VERSION = '2026-08-28';
+
+/** スクリプトプロパティ（使えない環境では null） */
+function getScriptProperties_() {
+  try {
+    return PropertiesService.getScriptProperties();
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 全シートを用意し、初期データ（設定値）を流し込む。
+ *
+ * 名前の付け替え・見出しの貼り直し・壁の初期投入は、毎回やると
+ * シートの読み書きが十数回増えてアプリの表示が目に見えて遅くなる。
+ * 一度済ませたらスクリプトプロパティに記録し、SCHEMA_VERSION が
+ * 変わったときだけやり直す。
+ *
+ * options.force を true にすると記録を無視して必ず全部やり直す
+ * （メニューの「① 初期セットアップ」はこちらを使う）。
+ */
+function ensureSheets_(options) {
   var ss = getSpreadsheet_();
-  migrateLegacySheetNames_();
+  var props = getScriptProperties_();
+  var force = !!(options && options.force);
+  var upToDate = !force && props !== null && props.getProperty('SCHEMA_VERSION') === SCHEMA_VERSION;
+
+  if (!upToDate) migrateLegacySheetNames_();
+
   Object.keys(SHEETS).forEach(function (key) {
     getSheet_(SHEETS[key]);
   });
+
+  if (upToDate) return;
+
   refreshHeaderLabels_();
   seedWallThresholds_();
   var first = ss.getSheets()[0];
@@ -197,6 +268,8 @@ function ensureSheets_() {
   var summary = ss.getSheetByName(SHEETS.SUMMARY);
   ss.setActiveSheet(summary);
   ss.moveActiveSheet(1);
+
+  if (props) props.setProperty('SCHEMA_VERSION', SCHEMA_VERSION);
 }
 
 /** 英語名で作られた既存のシートを日本語名に付け替える（中身はそのまま） */
@@ -221,6 +294,7 @@ function refreshHeaderLabels_() {
     });
     if (!same) {
       sheet.getRange(1, 1, 1, labels.length).setValues([labels]).setFontWeight('bold');
+      invalidateTable_(name);
     }
   });
 }
@@ -256,10 +330,14 @@ function seedWallThresholds_() {
  * 日付・時刻セルは文字列に正規化して返す（表示形式の違いを吸収するため）。
  */
 function readTable_(name) {
+  if (TABLE_CACHE[name]) return TABLE_CACHE[name];
   var sheet = getSheet_(name);
   var headers = SCHEMA[name] || [];
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { headers: headers, rows: [] };
+  if (lastRow < 2) {
+    TABLE_CACHE[name] = { headers: headers, rows: [] };
+    return TABLE_CACHE[name];
+  }
   var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
   var rows = [];
   values.forEach(function (line, i) {
@@ -273,7 +351,8 @@ function readTable_(name) {
     });
     rows.push(obj);
   });
-  return { headers: headers, rows: rows };
+  TABLE_CACHE[name] = { headers: headers, rows: rows };
+  return TABLE_CACHE[name];
 }
 
 /** オブジェクト配列をシート末尾に追記 */
@@ -287,6 +366,7 @@ function appendRows_(name, objects) {
     });
   });
   sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
+  invalidateTable_(name);
 }
 
 /**
@@ -327,6 +407,7 @@ function upsertRows_(name, objects, keyField, mergeFn) {
   if (toAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, headers.length).setValues(toAppend);
   }
+  if (updated > 0 || toAppend.length > 0) invalidateTable_(name);
   return { updated: updated, inserted: toAppend.length, unchanged: unchanged };
 }
 
@@ -353,6 +434,7 @@ function writeRowAt_(name, rowIndex, obj) {
     return obj[h] === undefined ? '' : obj[h];
   });
   sheet.getRange(rowIndex, 1, 1, headers.length).setValues([line]);
+  invalidateTable_(name);
 }
 
 /** 実行ログに1行追記（直近500件だけ残す） */
@@ -361,4 +443,5 @@ function writeLog_(kind, level, message) {
   sheet.appendRow([formatDateTime_(new Date()), kind, level, message]);
   var lastRow = sheet.getLastRow();
   if (lastRow > 501) sheet.deleteRows(2, lastRow - 501);
+  invalidateTable_(SHEETS.LOG);
 }

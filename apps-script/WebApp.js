@@ -13,7 +13,9 @@ function doGet() {
   var template = htmlTemplate_('App');
   var payload;
   try {
+    beginExecution_();
     ensureSheets_();
+    prefetchCalendar_(new Date());
     autoImportRecent_();
     payload = buildAppData_();
   } catch (e) {
@@ -165,7 +167,9 @@ function buildAppData_() {
 
 /** 再読み込み（答え合わせの再計算つき） */
 function appRefresh() {
+  beginExecution_();
   ensureSheets_();
+  prefetchCalendar_(new Date());
   autoImportRecent_();
   recalcReconciliations_();
   writeSummarySheet_(buildSnapshot_(new Date(), null));
@@ -174,12 +178,14 @@ function appRefresh() {
 
 /** 今日の予定をいますぐ取り込む */
 function appRunToday() {
+  beginExecution_();
   runAnalysisForDate_(new Date());
   return buildAppData_();
 }
 
 /** 指定した日を取り込み直す */
 function appImportDate(dateText) {
+  beginExecution_();
   var date = parseDateInput_(dateText);
   if (!date) throw new Error('日付は yyyy-MM-dd の形式で入力してください');
   ensureSheets_();
@@ -195,12 +201,14 @@ function appImportDate(dateText) {
 
 /** 月次の答え合わせを保存 */
 function appSaveReconciliation(payload) {
+  beginExecution_();
   var result = saveReconciliation(payload);
   return { data: buildAppData_(), result: result };
 }
 
 /** 手入力の収入を追加 */
 function appAddManualIncome(payload) {
+  beginExecution_();
   ensureSheets_();
   var sourceName = String(payload.sourceName || '').trim();
   var period = String(payload.period || '').trim();
@@ -229,6 +237,7 @@ function appAddManualIncome(payload) {
 
 /** 勤務先ごとの月間上限を更新（会社から正式な回答が来たとき） */
 function appSaveCompanyLimit(payload) {
+  beginExecution_();
   ensureSheets_();
   var companyName = String(payload.companyName || '').trim();
   var limit = toNumber_(payload.limit);

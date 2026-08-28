@@ -126,11 +126,14 @@ function saveReconciliation(payload) {
 function markReconciled_(yearMonth, companyName) {
   var sheet = getSheet_(SHEETS.CALENDAR);
   var col = SCHEMA[SHEETS.CALENDAR].indexOf('reconciled') + 1;
+  var changed = false;
   readTable_(SHEETS.CALENDAR).rows.forEach(function (r) {
     if (yearMonthOfDateString_(toDateString_(r.date)) !== yearMonth) return;
     if (companyName !== RECONCILE_ALL && String(r.company_name).trim() !== companyName) return;
     sheet.getRange(r._rowIndex, col).setValue(true);
+    changed = true;
   });
+  if (changed) invalidateTable_(SHEETS.CALENDAR);
 }
 
 /** シートに直接入力された actual_amount から差分を計算し直す */

@@ -7,6 +7,25 @@ function pad(n) {
   return String(n).padStart(2, '0');
 }
 
+/**
+ * Google API の呼び出し回数を数えるカウンタ。
+ * Apps Script では SpreadsheetApp / CalendarApp の1回1回が遅いため、
+ * 「何回呼んだか」が体感速度にほぼ直結する。最適化の効果をこれで測る。
+ */
+export const apiCalls = {
+  sheetRead: 0,
+  sheetWrite: 0,
+  calendarFetch: 0,
+  reset() {
+    apiCalls.sheetRead = 0;
+    apiCalls.sheetWrite = 0;
+    apiCalls.calendarFetch = 0;
+  },
+  get total() {
+    return apiCalls.sheetRead + apiCalls.sheetWrite + apiCalls.calendarFetch;
+  }
+};
+
 class FakeRange {
   constructor(sheet, row, col, numRows, numCols) {
     this.sheet = sheet;
@@ -16,6 +35,7 @@ class FakeRange {
     this.numCols = numCols;
   }
   getValues() {
+    apiCalls.sheetRead++;
     const out = [];
     for (let r = 0; r < this.numRows; r++) {
       const line = [];
@@ -29,6 +49,7 @@ class FakeRange {
     return out;
   }
   setValues(values) {
+    apiCalls.sheetWrite++;
     this.sheet.writes = (this.sheet.writes || 0) + 1;
     if (values.length !== this.numRows) throw new Error('行数が一致しません');
     values.forEach((line, r) => {
@@ -236,12 +257,14 @@ const formatDate = (date, _tz, format) => {
 function makeFakeCalendar(eventsByDate) {
   return {
     getEventsForDay: (date) => (eventsByDate[formatDate(date, null, 'yyyy-MM-dd')] || []).map((e) => new FakeEvent(e)),
-    getEvents: (start, end) =>
-      Object.keys(eventsByDate)
+    getEvents: (start, end) => {
+      apiCalls.calendarFetch++;
+      return Object.keys(eventsByDate)
         .sort()
         .reduce((all, key) => all.concat(eventsByDate[key]), [])
         .filter((e) => e.start >= start && e.start < end)
-        .map((e) => new FakeEvent(e))
+        .map((e) => new FakeEvent(e));
+    }
   };
 }
 
@@ -274,6 +297,7 @@ export function makeSandbox(eventsByDate, otherCalendars) {
     }
   };
 
+  const scriptProperties = {};
   let uuid = 0;
 
   return {
@@ -297,6 +321,17 @@ export function makeSandbox(eventsByDate, otherCalendars) {
       },
       MailApp: { sendEmail: (to, subject, body) => sentMail.push({ to, subject, body }) },
       UrlFetchApp: { fetch: () => ({}) },
+      PropertiesService: {
+        getScriptProperties: () => ({
+          getProperty: (key) => (key in scriptProperties ? scriptProperties[key] : null),
+          setProperty: (key, value) => {
+            scriptProperties[key] = String(value);
+          },
+          deleteProperty: (key) => {
+            delete scriptProperties[key];
+          }
+        })
+      },
       HtmlService: {
         createTemplate: (html) => makeHtmlTemplate(html),
         createTemplateFromFile: (name) => makeHtmlTemplate(`<!-- ${name} -->`),
@@ -315,6 +350,7 @@ export function makeSandbox(eventsByDate, otherCalendars) {
     sentMail,
     alerts,
     menu,
-    dialogs
+    dialogs,
+    scriptProperties
   };
 }

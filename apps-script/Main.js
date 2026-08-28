@@ -26,7 +26,9 @@ function onOpen() {
 
 /** ① 初期セットアップ */
 function setupSheets() {
-  ensureSheets_();
+  beginExecution_();
+  // 利用者が明示的に実行したときは、記録を無視して移行処理を必ずやり直す
+  ensureSheets_({ force: true });
   var snapshot = buildSnapshot_(new Date(), null);
   writeSummarySheet_(snapshot);
   writeLog_('setup', '正常', 'シートを初期化しました');
@@ -60,8 +62,10 @@ function removeDailyTrigger() {
 /** 毎日23:30にトリガーから呼ばれる本体 */
 function dailyJob() {
   try {
+    beginExecution_();
     // 当日だけでなく直近数日分を見直す（予定を後から書き足しても拾えるように）
     var today = new Date();
+    prefetchCalendar_(today);
     var from = new Date(today.getTime());
     from.setDate(from.getDate() - (CONFIG.daily.lookbackDays - 1));
     runAnalysisForRange_(from, today);

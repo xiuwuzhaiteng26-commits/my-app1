@@ -207,5 +207,6 @@ function removeSeededDuplicates_(entries) {
     .forEach(function (rowIndex) {
       sheet.deleteRow(rowIndex);
     });
+  if (remove.length > 0) invalidateTable_(SHEETS.CALENDAR);
   return remove.length;
 }
