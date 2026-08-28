@@ -225,11 +225,21 @@ function refreshHeaderLabels_() {
   });
 }
 
-/** 壁の設定が空なら CONFIG の値で初期化する */
+/**
+ * CONFIG.walls.thresholds にあって、まだ「壁の設定」シートに無い壁だけを追加する。
+ * 名前（例: '150万円'）で照合するので、既にシート上で編集済みの行には触らない。
+ * これにより、後から壁の種類が増えたときも初期セットアップの再実行だけで反映できる。
+ */
 function seedWallThresholds_() {
-  var table = readTable_(SHEETS.WALLS);
-  if (table.rows.length > 0) return;
-  var rows = CONFIG.walls.thresholds.map(function (w) {
+  var existing = {};
+  readTable_(SHEETS.WALLS).rows.forEach(function (r) {
+    existing[String(r.name).trim()] = true;
+  });
+  var missing = CONFIG.walls.thresholds.filter(function (w) {
+    return !existing[w.name];
+  });
+  if (missing.length === 0) return;
+  var rows = missing.map(function (w) {
     return {
       name: w.name,
       amount: w.amount,

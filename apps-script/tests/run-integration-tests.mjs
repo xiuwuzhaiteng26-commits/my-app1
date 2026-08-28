@@ -127,9 +127,9 @@ check('セットアップ: 見出しは日本語', spreadsheet.getSheetByName('�
   '勤務先',
   '開始'
 ]);
-check('セットアップ: 壁の初期値を投入', run('readTable_(SHEETS.WALLS).rows.length'), 2);
+check('セットアップ: 壁の初期値を投入', run('readTable_(SHEETS.WALLS).rows.length'), 3);
 run('ensureSheets_()');
-check('セットアップ: 再実行しても壁が増えない', run('readTable_(SHEETS.WALLS).rows.length'), 2);
+check('セットアップ: 再実行しても壁が増えない', run('readTable_(SHEETS.WALLS).rows.length'), 3);
 
 /* --- 取り込み --- */
 const target = new Date(2026, 7, 20, 23, 30);
@@ -249,7 +249,7 @@ check('通知: 実行ログに記録される', run('readTable_(SHEETS.LOG).rows
 
 /* --- ウェブアプリ（画面） --- */
 const appData = run('buildAppData_()');
-check('アプリ: 壁と労働時間を返す', [appData.walls.length, appData.hours.length], [2, 2]);
+check('アプリ: 壁と労働時間を返す', [appData.walls.length, appData.hours.length], [3, 2]);
 check('アプリ: 直近の勤務は新しい順', appData.recentEntries[0].date, '2026-08-20');
 check('アプリ: 勤務先の上限を返す', appData.limits.length, 2);
 check('アプリ: 答え合わせ用の選択肢を返す', appData.reconcileForm.companies[0], '合計（全勤務先）');
@@ -687,7 +687,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   ];
   legacy.spreadsheet.insertSheet('wall_thresholds').data = [
     ['name', 'amount', 'applicable_year', 'last_updated', 'note'],
-    ['123万円', 1230000, 2026, '2026-08-22', '所得税・扶養控除に関する壁の目安']
+    ['123万円', 1230000, 2026, '2026-08-22', '所得税・扶養控除に関する壁の目安（自分で書き換えたメモ）']
   ];
   vm.runInContext('ensureSheets_()', legacyContext);
 
@@ -697,7 +697,19 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   const kept = vm.runInContext('readTable_(SHEETS.CALENDAR).rows', legacyContext);
   check('移行: データはそのまま残る', [kept.length, kept[0].company_name, kept[0].estimated_amount], [1, 'Kakedas', 9808]);
   check('移行: 照合済みフラグも残る', vm.runInContext('toBool_(readTable_(SHEETS.CALENDAR).rows[0].reconciled)', legacyContext), true);
-  check('移行: 壁の設定が二重登録されない', vm.runInContext('readTable_(SHEETS.WALLS).rows.length', legacyContext), 1);
+
+  const wallRows = vm.runInContext('readTable_(SHEETS.WALLS).rows', legacyContext);
+  check('移行: 既存の壁は重複せず、無い壁だけ追加される', wallRows.length, 3);
+  check(
+    '移行: 既存の123万円は編集済みの内容のまま（上書きされない）',
+    wallRows.filter((r) => r.name === '123万円')[0].note,
+    '所得税・扶養控除に関する壁の目安（自分で書き換えたメモ）'
+  );
+  check(
+    '移行: 130万円・150万円が後から追加される',
+    wallRows.map((r) => r.name).sort(),
+    ['123万円', '130万円', '150万円']
+  );
 }
 
 console.log(details.join('\n'));
