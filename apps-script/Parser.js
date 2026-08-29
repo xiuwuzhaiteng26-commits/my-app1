@@ -39,6 +39,8 @@ function parseWorkEventTitle_(rawTitle) {
     breakHours: 0,
     hourlyWage: 0,
     allowance: 0,
+    hasFixedAmount: false,
+    fixedAmount: 0,
     normalizedTitle: title
   };
 
@@ -89,6 +91,19 @@ function parseWorkEventTitle_(rawTitle) {
 
   res.allowance = parseAllowance_(title);
 
+  var fixed = parseFixedAmount_(title);
+  if (fixed.found) {
+    res.hasFixedAmount = true;
+    res.fixedAmount = fixed.amount;
+    if (res.allowance > 0) {
+      res.warnings.push(
+        '支給額を書いたので、その日の金額は支給額そのものにしました（手当は足していません）。' +
+          '手当も受け取るなら、支給額に足した金額を書いてください'
+      );
+      res.allowance = 0;
+    }
+  }
+
   res.ok = true;
   res.kind = 'work';
   res.reason = '';
@@ -115,6 +130,22 @@ function parseAllowance_(title) {
     total += toNumber_(match[1]);
   }
   return total;
+}
+
+/**
+ * その日の支給額（時給×時間の計算を上書きする、確定した金額）を読み取る。
+ *
+ * 残業がついた・特別手当が出た・端数の扱いが会社独自、といった理由で
+ * 時給×時間と実際の支給額がずれる日のためのもの。書いてあればそれが優先される。
+ *
+ * 対応: 支給18500円 / 支給額18,500円 / 給与18500円 / 合計18500円
+ */
+function parseFixedAmount_(title) {
+  var match = title.match(/(?:支給額|支給|給与|合計)\s*\+?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*円?/);
+  if (!match) return { found: false, amount: 0 };
+  var amount = toNumber_(match[1]);
+  if (amount <= 0) return { found: false, amount: 0 };
+  return { found: true, amount: Math.round(amount) };
 }
 
 /**

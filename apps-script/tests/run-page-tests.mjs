@@ -36,6 +36,14 @@ const env = makeSandbox({
       start: new Date(2026, 7, 25, 9, 0),
       end: new Date(2026, 7, 25, 18, 0)
     }
+  ],
+  '2026-08-26': [
+    {
+      id: 'fixed-1',
+      title: '[会社C] 09:00-19:00 休憩1h 時給1300円 支給15000円',
+      start: new Date(2026, 7, 26, 9, 0),
+      end: new Date(2026, 7, 26, 19, 0)
+    }
   ]
 });
 const ctx = vm.createContext(env.sandbox);
@@ -51,6 +59,8 @@ vm.runInContext(
    importSeedData();`,
   ctx
 );
+// 支給額つきの予定を先に取り込んでおく（画面表示の時点でシートに入っている状態にする）
+vm.runInContext('importDateRange_(new Date(2026, 7, 26), new Date(2026, 7, 26))', ctx);
 const html = vm.runInContext('doGet()', ctx).getContent();
 
 /* ---- ブラウザ側を実行する ---- */
@@ -147,6 +157,7 @@ check('画面: ホームに年間収入を出す', home.indexOf('年の収入（
 check('画面: ホームに壁までの残りを出す', home.indexOf('壁までの残り') > 0, true);
 check('画面: 壁を全部並べる', home.indexOf('123万円') > 0 && home.indexOf('130万円') > 0, true);
 check('画面: 手当を明細に出す', home.indexOf('手当') > 0, true);
+check('画面: 支給額の印を明細に出す', home.indexOf('支給額') > 0, true);
 check('画面: ホームに当月の労働時間を出す', home.indexOf('今月') > 0, true);
 
 const income = elements['view-income'] ? elements['view-income'].innerHTML : '';

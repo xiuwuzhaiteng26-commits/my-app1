@@ -25,8 +25,14 @@ function computeWorkedHours_(startTime, endTime, breakHours) {
  *
  * 手当は単発バイトで就業先ごとに出る固定額（交通費・食事補助など）。
  * 額面に含まれるものとして時給分に足す。
+ *
+ * fixedAmount（その日の支給額）が指定されていれば、計算結果ではなくそちらを使う。
+ * 残業や会社独自の端数処理で、時給×時間と実際の支給額がずれる日のため。
  */
-function computeEstimatedAmount_(workedHours, hourlyWage, allowance) {
+function computeEstimatedAmount_(workedHours, hourlyWage, allowance, fixedAmount) {
+  // その日の支給額が分かっている場合（残業がついた日など）は、それをそのまま使う
+  var fixed = Number(fixedAmount || 0);
+  if (fixed > 0) return Math.round(fixed);
   var base = Math.round(Number(workedHours || 0) * Number(hourlyWage || 0));
   return base + Math.round(Number(allowance || 0));
 }

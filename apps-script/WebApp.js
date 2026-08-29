@@ -85,6 +85,7 @@ function buildAppData_(options) {
         workedHours: toNumber_(r.worked_hours),
         amount: toNumber_(r.estimated_amount),
         allowance: toNumber_(r.allowance),
+        fixedAmount: toNumber_(r.fixed_amount),
         reconciled: toBool_(r.reconciled)
       };
     })

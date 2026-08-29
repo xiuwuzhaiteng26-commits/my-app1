@@ -495,6 +495,74 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   check('手当: 書き換えても重複しない', alRun('readTable_(SHEETS.CALENDAR).rows.length'), 2);
 }
 
+/* --- 支給額（残業などでその日の金額が変わったとき） --- */
+{
+  let title = '[バイトレ] 09:00-17:00 休憩なし 時給1700円';
+  const fxEnv = makeSandbox({
+    '2026-08-12': [
+      { id: 'evt-fx', title, start: new Date(2026, 7, 12, 9, 0), end: new Date(2026, 7, 12, 17, 0) }
+    ]
+  });
+  // タイトルを後から書き換えられるようにする（カレンダーを直したのと同じ状況）
+  fxEnv.sandbox.CalendarApp.getDefaultCalendar = (function (original) {
+    return function () {
+      const calendar = original();
+      return {
+        getEventsForDay: calendar.getEventsForDay,
+        getEvents: (start, end) =>
+          calendar.getEvents(start, end).map((e) => {
+            if (e.getId() === 'evt-fx') e.title = title;
+            return e;
+          })
+      };
+    };
+  })(fxEnv.sandbox.CalendarApp.getDefaultCalendar);
+
+  const fxCtx = vm.createContext(fxEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), fxCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), fxCtx, { filename: file });
+  }
+  const fxRun = (expr) => vm.runInContext(expr, fxCtx);
+  const reimport = () => fxRun('beginExecution_(); importDateRange_(new Date(2026, 7, 12), new Date(2026, 7, 12))');
+  const only = () => fxRun('readTable_(SHEETS.CALENDAR).rows')[0];
+
+  fxRun('ensureSheets_()');
+  reimport();
+  check('支給額: 最初は時給×時間', [Number(only().estimated_amount), Number(only().fixed_amount)], [8 * 1700, 0]);
+
+  // あとから交通費だけを書き足す
+  title = '[バイトレ] 09:00-17:00 休憩なし 時給1700円 交通費800円';
+  reimport();
+  check('あとから追記: 交通費が反映される', Number(only().estimated_amount), 8 * 1700 + 800);
+  check('あとから追記: 行は増えない', fxRun('readTable_(SHEETS.CALENDAR).rows.length'), 1);
+
+  // 残業がついて支給額が変わった日
+  title = '[バイトレ] 09:00-19:00 休憩なし 時給1700円 支給18500円';
+  reimport();
+  check('支給額: 書いた金額がそのまま入る', Number(only().estimated_amount), 18500);
+  check('支給額: 明細にも支給額として残る', Number(only().fixed_amount), 18500);
+  check('支給額: 実働時間は時刻どおり', Number(only().worked_hours), 10);
+  check('支給額: 年間収入に反映される', fxRun('buildSnapshot_(new Date(2026, 7, 12, 23, 30), null)').annual.totalRevenue, 18500);
+  check('支給額: アプリの明細に出る', fxRun('buildAppData_()').recentEntries[0].fixedAmount, 18500);
+
+  // 照合済みの印は、書き換えても消えない
+  fxRun("markReconciled_('2026-08', RECONCILE_ALL)");
+  title = '[バイトレ] 09:00-19:00 休憩なし 時給1700円 支給19000円';
+  reimport();
+  check(
+    '支給額: 書き換えても照合済みは消えない',
+    [Number(only().estimated_amount), fxRun('toBool_(readTable_(SHEETS.CALENDAR).rows[0].reconciled)')],
+    [19000, true]
+  );
+
+  // 支給額を消したら計算に戻る
+  title = '[バイトレ] 09:00-19:00 休憩なし 時給1700円';
+  reimport();
+  check('支給額: 消せば時給×時間に戻る', [Number(only().estimated_amount), Number(only().fixed_amount)], [10 * 1700, 0]);
+}
+
 /* --- 複数アカウントのカレンダーをまとめて取り込む --- */
 {
   const DAY = '2026-08-20';

@@ -182,11 +182,17 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
         break_hours: round2_(parsed.breakHours),
         worked_hours: round2_(workedHours),
         hourly_wage: parsed.hourlyWage,
-        estimated_amount: computeEstimatedAmount_(workedHours, parsed.hourlyWage, parsed.allowance),
+        estimated_amount: computeEstimatedAmount_(
+          workedHours,
+          parsed.hourlyWage,
+          parsed.allowance,
+          parsed.fixedAmount
+        ),
         reconciled: false,
         source_title: title,
         updated_at: now,
-        allowance: parsed.allowance
+        allowance: parsed.allowance,
+        fixed_amount: parsed.hasFixedAmount ? parsed.fixedAmount : 0
       });
     });
   });
@@ -250,7 +256,13 @@ function fetchPlannedShifts_(startDate, endDate) {
         worked_hours: round2_(workedHours),
         hourly_wage: parsed.hourlyWage,
         allowance: parsed.allowance,
-        estimated_amount: computeEstimatedAmount_(workedHours, parsed.hourlyWage, parsed.allowance)
+        fixed_amount: parsed.hasFixedAmount ? parsed.fixedAmount : 0,
+        estimated_amount: computeEstimatedAmount_(
+          workedHours,
+          parsed.hourlyWage,
+          parsed.allowance,
+          parsed.fixedAmount
+        )
       });
     });
   });

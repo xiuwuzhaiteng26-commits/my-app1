@@ -68,6 +68,54 @@ function runTests() {
   check('推定収入: 手当が無くても従来どおり', computeEstimatedAmount_(8, 1200), 9600);
   check('推定収入: 手当だけの端数も四捨五入', computeEstimatedAmount_(0, 0, 1500), 1500);
 
+  /* --- 支給額（残業などで時給×時間とずれた日を上書きする） --- */
+  var fx1 = parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円 支給12000円');
+  check('支給額: 基本形', [fx1.ok, fx1.hasFixedAmount, fx1.fixedAmount], [true, true, 12000]);
+  check(
+    '支給額: 「支給額」と書いてもよい',
+    parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円 支給額12,500円').fixedAmount,
+    12500
+  );
+  check(
+    '支給額: 「合計」でも拾う',
+    parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円 合計12500円').fixedAmount,
+    12500
+  );
+  check(
+    '支給額: 「給与」でも拾う',
+    parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円 給与12500円').fixedAmount,
+    12500
+  );
+  check(
+    '支給額: 全角でも拾う',
+    parseWorkEventTitle_('［Ａ］ ０９：００−１８：００ 休憩１ｈ 時給１２００円 支給１２，０００円').fixedAmount,
+    12000
+  );
+  check(
+    '支給額: 記載が無ければ使わない',
+    parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円').hasFixedAmount,
+    false
+  );
+  check(
+    '支給額: 時給を取り違えない',
+    parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円 支給12000円').hourlyWage,
+    1200
+  );
+  var fxBoth = parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円 交通費800円 支給12000円');
+  check('支給額: 手当と併記したら手当は足さない', [fxBoth.fixedAmount, fxBoth.allowance], [12000, 0]);
+  check('支給額: 手当と併記したら注意を出す', fxBoth.warnings.length, 1);
+
+  check('推定収入: 支給額があればそれを使う', computeEstimatedAmount_(8, 1200, 1000, 12000), 12000);
+  check('推定収入: 支給額が0なら計算どおり', computeEstimatedAmount_(8, 1200, 1000, 0), 8 * 1200 + 1000);
+
+  var fixedRows = [
+    { date: '2026-08-01', company_name: 'A', worked_hours: 8, estimated_amount: 12000, allowance: 0, fixed_amount: 12000 },
+    { date: '2026-08-02', company_name: 'A', worked_hours: 8, estimated_amount: 9600, allowance: 0, fixed_amount: 0 }
+  ];
+  var withFixed = aggregateAnnual_(fixedRows, [], 2026);
+  check('支給額: 年間の収入に反映される', withFixed.calendarRevenue, 21600);
+  check('支給額: 手当合計には入れない', withFixed.allowanceTotal, 0);
+
   var allowanceRows = [
     { date: '2026-08-01', company_name: 'A', worked_hours: 8, estimated_amount: 10600, allowance: 1000 },
     { date: '2026-08-02', company_name: 'A', worked_hours: 8, estimated_amount: 9600, allowance: 0 }
