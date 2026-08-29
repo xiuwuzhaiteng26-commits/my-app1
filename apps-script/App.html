@@ -4,154 +4,281 @@
     <base target="_top" />
     <style>
       :root {
-        --bg: #f4f5f7;
+        --bg: #f2f4f7;
         --card: #ffffff;
-        --line: #e3e5e8;
-        --text: #1c1f24;
+        --line: #e6e9ee;
+        --line-soft: #f0f2f5;
+        --text: #16191d;
         --muted: #6b7280;
-        --accent: #1a73e8;
-        --ok: #1e8e3e;
-        --warn: #e8710a;
-        --alert: #d93025;
-        --ok-bg: #e6f4ea;
-        --warn-bg: #fef3e2;
-        --alert-bg: #fce8e6;
+        --faint: #9aa1ab;
+        --accent: #2563eb;
+        --accent-soft: #eff4ff;
+        --ok: #15803d;
+        --warn: #c2620a;
+        --alert: #c02626;
+        --ok-bg: #e9f7ee;
+        --warn-bg: #fdf3e4;
+        --alert-bg: #fdecea;
+        --ok-bar: #22a35a;
+        --warn-bar: #ec9013;
+        --alert-bar: #e0453b;
+        --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 4px 14px rgba(16, 24, 40, 0.06);
+        --shadow-lg: 0 2px 6px rgba(16, 24, 40, 0.07), 0 12px 32px rgba(16, 24, 40, 0.1);
+        --radius: 18px;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #15181c;
-          --card: #1f2328;
-          --line: #2f343a;
-          --text: #e8eaed;
-          --muted: #9aa0a6;
-          --accent: #8ab4f8;
-          --ok: #81c995;
-          --warn: #fdd663;
-          --alert: #f28b82;
-          --ok-bg: #1e3226;
-          --warn-bg: #3a3020;
-          --alert-bg: #3d2220;
+          --bg: #0f1216;
+          --card: #191d23;
+          --line: #2a3038;
+          --line-soft: #23282f;
+          --text: #e9edf2;
+          --muted: #9aa3ae;
+          --faint: #6f7883;
+          --accent: #6ea0ff;
+          --accent-soft: #1a2436;
+          --ok: #6ee7a0;
+          --warn: #fbbf4a;
+          --alert: #ff8f85;
+          --ok-bg: #16281d;
+          --warn-bg: #2e2617;
+          --alert-bg: #2f1d1c;
+          --ok-bar: #34c777;
+          --warn-bar: #eda23a;
+          --alert-bar: #f2695e;
+          --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+          --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
         }
       }
+
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html { -webkit-text-size-adjust: 100%; }
       body {
         margin: 0;
-        padding: 0 0 88px;
+        padding: 0 0 calc(76px + env(safe-area-inset-bottom));
         background: var(--bg);
         color: var(--text);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans',
           'Noto Sans JP', 'Yu Gothic', sans-serif;
         font-size: 15px;
-        line-height: 1.6;
+        line-height: 1.55;
         -webkit-font-smoothing: antialiased;
+        overscroll-behavior-y: none;
       }
+
+      /* ---------- ヘッダー ---------- */
       header {
-        position: sticky; top: 0; z-index: 10;
-        background: var(--card); border-bottom: 1px solid var(--line);
-        padding: 12px 16px calc(12px + env(safe-area-inset-top));
-        display: flex; align-items: center; gap: 10px;
+        position: sticky; top: 0; z-index: 30;
+        background: color-mix(in srgb, var(--card) 88%, transparent);
+        backdrop-filter: saturate(1.6) blur(14px);
+        -webkit-backdrop-filter: saturate(1.6) blur(14px);
+        border-bottom: 1px solid var(--line);
+        padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+        display: flex; align-items: center; gap: 12px;
       }
-      header h1 { font-size: 17px; margin: 0; flex: 1; }
-      header .updated { font-size: 11px; color: var(--muted); font-weight: normal; display: block; }
+      header .brand { flex: 1; min-width: 0; }
+      header h1 { font-size: 16px; margin: 0; letter-spacing: .01em; font-weight: 700; }
+      header .updated {
+        display: flex; align-items: center; gap: 5px;
+        font-size: 11px; color: var(--faint); font-weight: 400; margin-top: 1px;
+      }
+      .dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; background: var(--ok-bar); }
+      .dot.注意 { background: var(--warn-bar); }
+      .dot.警告 { background: var(--alert-bar); }
+      .spin {
+        width: 12px; height: 12px; flex: 0 0 auto;
+        border: 2px solid var(--line); border-top-color: var(--accent);
+        border-radius: 50%; animation: spin .7s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
       .icon-btn {
-        border: 1px solid var(--line); background: transparent; color: var(--text);
-        border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+        border: 1px solid var(--line); background: var(--card); color: var(--text);
+        border-radius: 999px; padding: 7px 15px; font-size: 13px; font-weight: 600;
+        cursor: pointer; flex: 0 0 auto; font-family: inherit;
       }
-      main { padding: 12px 12px 0; max-width: 620px; margin: 0 auto; }
-      .view { display: none; }
+      .icon-btn:active { transform: scale(.96); }
+
+      main { padding: 14px 14px 0; max-width: 620px; margin: 0 auto; }
+      .view { display: none; animation: fade .22s ease; }
       .view.active { display: block; }
+      @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
+      /* ---------- カード ---------- */
       .card {
-        background: var(--card); border: 1px solid var(--line);
-        border-radius: 14px; padding: 14px 16px; margin-bottom: 12px;
+        background: var(--card);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-bottom: 12px;
+        box-shadow: var(--shadow);
       }
-      .card h2 { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; letter-spacing: .04em; }
-      .card h3 { font-size: 15px; margin: 0 0 2px; }
+      .card > h2 {
+        font-size: 11px; color: var(--faint); margin: 0 0 12px;
+        font-weight: 700; letter-spacing: .08em; text-transform: none;
+      }
+      .card h3 { font-size: 15px; margin: 0; font-weight: 650; }
 
-      .badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 999px; }
+      /* ---------- ヒーロー ---------- */
+      .hero {
+        background: linear-gradient(160deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 72%, #7c3aed) 100%);
+        color: #fff; border-radius: var(--radius); padding: 20px 18px;
+        margin-bottom: 12px; box-shadow: var(--shadow-lg);
+      }
+      .hero .label { font-size: 12px; opacity: .82; font-weight: 600; letter-spacing: .04em; }
+      .hero .amount { font-size: 34px; font-weight: 800; letter-spacing: -.025em; line-height: 1.15; margin-top: 2px; }
+      .hero .sub { font-size: 12px; opacity: .82; margin-top: 3px; }
+      .hero .split { display: flex; gap: 10px; margin-top: 16px; }
+      .hero .chip {
+        flex: 1; background: rgba(255,255,255,.16); border-radius: 12px;
+        padding: 9px 11px; min-width: 0;
+      }
+      .hero .chip .k { font-size: 10.5px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .hero .chip .v { font-size: 15px; font-weight: 700; margin-top: 1px; }
+
+      /* ---------- 数値・行 ---------- */
+      .big { font-size: 27px; font-weight: 750; letter-spacing: -.022em; line-height: 1.2; }
+      .big.neg { color: var(--alert); }
+      .sub { font-size: 12px; color: var(--muted); }
+      .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+      .row + .row { margin-top: 7px; }
+      .row .k { color: var(--muted); font-size: 13px; }
+      .row .v { font-variant-numeric: tabular-nums; font-size: 14px; }
+      .strong { font-weight: 750; }
+      .divider { border-top: 1px solid var(--line-soft); margin: 11px 0; }
+      .total { background: var(--accent-soft); margin: 11px -16px -16px; padding: 13px 16px;
+               border-radius: 0 0 var(--radius) var(--radius); }
+      .total .k { color: var(--text); font-weight: 650; font-size: 13px; }
+      .total .v { font-size: 16px; }
+
+      /* ---------- バッジ ---------- */
+      .badge {
+        display: inline-block; font-size: 11px; font-weight: 750;
+        padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+      }
       .s-正常 { color: var(--ok); background: var(--ok-bg); }
       .s-注意 { color: var(--warn); background: var(--warn-bg); }
       .s-警告, .s-要確認 { color: var(--alert); background: var(--alert-bg); }
       .s-OK { color: var(--ok); background: var(--ok-bg); }
+      .s-情報 { color: var(--muted); background: var(--line-soft); }
 
-      .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
-      .big.neg { color: var(--alert); }
-      .sub { font-size: 12px; color: var(--muted); }
-      .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-      .row + .row { margin-top: 6px; }
-      .row .k { color: var(--muted); font-size: 13px; }
-      .row .v { font-variant-numeric: tabular-nums; }
-      .strong { font-weight: 700; }
-      .divider { border-top: 1px solid var(--line); margin: 10px 0; }
+      /* ---------- バー ---------- */
+      .bar { height: 9px; border-radius: 999px; background: var(--line-soft); overflow: hidden; margin: 11px 0 7px; }
+      .bar > i { display: block; height: 100%; border-radius: 999px; transition: width .5s cubic-bezier(.2,.8,.2,1); }
+      .f-正常 { background: linear-gradient(90deg, var(--ok-bar), color-mix(in srgb, var(--ok-bar) 70%, #7ee0a8)); }
+      .f-注意 { background: linear-gradient(90deg, var(--warn-bar), color-mix(in srgb, var(--warn-bar) 70%, #ffd08a)); }
+      .f-警告 { background: linear-gradient(90deg, var(--alert-bar), color-mix(in srgb, var(--alert-bar) 70%, #ff9d95)); }
 
-      .bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 10px 0 6px; }
-      .bar > i { display: block; height: 100%; border-radius: 999px; }
-      .f-正常 { background: var(--ok); }
-      .f-注意 { background: var(--warn); }
-      .f-警告 { background: var(--alert); }
+      /* ---------- 壁カード ---------- */
+      .wall + .wall { margin-top: 6px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+      .wall .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .wall .name { font-size: 14px; font-weight: 700; }
+      .wall .rest { font-size: 23px; font-weight: 780; letter-spacing: -.02em; margin-top: 5px; }
+      .wall .rest.neg { color: var(--alert); }
+      .wall .meta { display: flex; justify-content: space-between; }
 
+      /* ---------- 一覧 ---------- */
       ul.list { list-style: none; margin: 0; padding: 0; }
-      ul.list li { padding: 9px 0; border-top: 1px solid var(--line); }
-      ul.list li:first-child { border-top: 0; }
-      .muted { color: var(--muted); }
-      .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+      ul.list li { padding: 11px 0; border-top: 1px solid var(--line-soft); }
+      ul.list li:first-child { border-top: 0; padding-top: 2px; }
+      .empty { color: var(--faint); font-size: 13px; padding: 10px 0; text-align: center; }
+      .block + .block { margin-top: 17px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
 
-      label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
+      /* ---------- アドバイス ---------- */
+      .advice { display: flex; gap: 11px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line-soft); }
+      .advice:first-child { border-top: 0; padding-top: 0; }
+      .advice .badge { flex: 0 0 auto; margin-top: 1px; }
+      .advice div { font-size: 13.5px; line-height: 1.6; }
+
+      /* ---------- フォーム ---------- */
+      label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 5px; font-weight: 600; }
       input, select, textarea {
-        width: 100%; padding: 10px 12px; font-size: 16px; color: var(--text);
-        background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
-        font-family: inherit;
+        width: 100%; padding: 11px 13px; font-size: 16px; color: var(--text);
+        background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+        font-family: inherit; appearance: none;
       }
+      input:focus, select:focus, textarea:focus {
+        outline: none; border-color: var(--accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+      }
+      select { background-image: none; }
       button.primary {
-        width: 100%; margin-top: 14px; padding: 12px; font-size: 15px; font-weight: 600;
-        border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer;
+        width: 100%; margin-top: 16px; padding: 13px; font-size: 15px; font-weight: 700;
+        border: 0; border-radius: 12px; background: var(--accent); color: #fff;
+        cursor: pointer; font-family: inherit;
       }
+      button.primary:active { transform: scale(.99); }
       button.primary:disabled { opacity: .5; }
       button.small {
-        padding: 7px 12px; font-size: 13px; border-radius: 8px;
-        border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer;
+        padding: 9px 14px; font-size: 13px; font-weight: 650; border-radius: 10px;
+        border: 1px solid var(--line); background: var(--card); color: var(--text);
+        cursor: pointer; font-family: inherit; flex: 0 0 auto;
       }
-      .inline { display: flex; gap: 8px; align-items: center; }
-      .inline input { flex: 1; }
-      .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
-      .check input { width: 18px; height: 18px; }
-      a { color: var(--accent); }
+      .inline { display: flex; gap: 9px; align-items: center; }
+      .inline input, .inline select { flex: 1; min-width: 0; }
+      .check { display: flex; align-items: center; gap: 9px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+      .check input { width: 19px; height: 19px; flex: 0 0 auto; accent-color: var(--accent); }
+      a { color: var(--accent); text-decoration: none; font-weight: 600; }
 
+      .estimate {
+        background: var(--accent-soft); border-radius: 13px; padding: 13px 15px; margin-top: 14px;
+      }
+      .estimate .k { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+      .estimate .v { font-size: 25px; font-weight: 780; letter-spacing: -.02em; margin-top: 1px; }
+
+      /* ---------- ナビ ---------- */
       nav {
-        position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-        display: flex; background: var(--card); border-top: 1px solid var(--line);
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+        display: flex; background: color-mix(in srgb, var(--card) 92%, transparent);
+        backdrop-filter: saturate(1.6) blur(14px);
+        -webkit-backdrop-filter: saturate(1.6) blur(14px);
+        border-top: 1px solid var(--line);
         padding-bottom: env(safe-area-inset-bottom);
       }
       nav button {
-        flex: 1; border: 0; background: transparent; color: var(--muted);
-        padding: 9px 0 11px; font-size: 11px; cursor: pointer; font-family: inherit;
+        flex: 1; border: 0; background: transparent; color: var(--faint);
+        padding: 8px 0 9px; font-size: 10.5px; cursor: pointer; font-family: inherit;
+        font-weight: 650; position: relative; transition: color .18s;
       }
-      nav button .ico { display: block; font-size: 19px; line-height: 1.3; }
-      nav button.active { color: var(--accent); font-weight: 700; }
+      nav button .ico { display: block; font-size: 19px; line-height: 1.35; filter: grayscale(1); opacity: .55; transition: all .18s; }
+      nav button.active { color: var(--accent); }
+      nav button.active .ico { filter: none; opacity: 1; transform: translateY(-1px); }
 
+      /* ---------- 通知など ---------- */
       #toast {
-        position: fixed; left: 50%; bottom: 78px; transform: translateX(-50%);
-        background: #202124; color: #fff; padding: 10px 18px; border-radius: 10px;
-        font-size: 13px; max-width: 88%; z-index: 40; display: none; box-shadow: 0 4px 16px rgba(0,0,0,.3);
+        position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));
+        transform: translateX(-50%) translateY(10px);
+        background: #1f2328; color: #fff; padding: 12px 18px; border-radius: 13px;
+        font-size: 13px; max-width: 88%; z-index: 60; box-shadow: var(--shadow-lg);
+        opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
       }
+      #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
       #busy {
-        position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 50;
+        position: fixed; inset: 0; background: rgba(10, 12, 16, .3); z-index: 70;
         display: none; align-items: center; justify-content: center;
+        backdrop-filter: blur(2px);
       }
-      #busy div { background: var(--card); padding: 14px 22px; border-radius: 12px; font-size: 14px; }
-      .advice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
-      .advice:first-child { border-top: 0; }
-      .advice .badge { flex: 0 0 auto; }
-      .s-情報 { color: var(--muted); background: var(--line); }
+      #busy.show { display: flex; }
+      #busy div {
+        background: var(--card); padding: 16px 24px; border-radius: 14px;
+        font-size: 14px; font-weight: 600; box-shadow: var(--shadow-lg);
+      }
+      .skeleton {
+        background: linear-gradient(90deg, var(--line-soft) 25%, var(--line) 37%, var(--line-soft) 63%);
+        background-size: 400% 100%; animation: shimmer 1.3s ease-in-out infinite;
+        border-radius: 8px; height: 13px;
+      }
+      @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
       .disclaimer {
-        font-size: 11px; color: var(--muted); line-height: 1.6;
-        border-top: 1px solid var(--line); padding: 12px 4px 20px; margin-top: 6px;
+        font-size: 11px; color: var(--faint); line-height: 1.6;
+        padding: 16px 6px 24px; text-align: center;
       }
     </style>
   </head>
   <body>
     <header>
-      <h1>年収の壁 <span class="updated" id="updated">読み込み中…</span></h1>
+      <div class="brand">
+        <h1>年収の壁</h1>
+        <span class="updated" id="updated"><span class="spin"></span>読み込み中</span>
+      </div>
       <button class="icon-btn" id="reload">更新</button>
     </header>
 
@@ -176,7 +303,7 @@
     <div id="busy"><div>処理中…</div></div>
 
     <script>
-      // 下のスクリプトが壊れても白い「読み込み中…」のまま放置しないための保険。
+      // 下のスクリプトが壊れても白い画面のまま放置しないための保険。
       // 別の script ブロックに置くことで、後続ブロックの構文エラーも拾える。
       window.addEventListener('error', function (event) {
         var updated = document.getElementById('updated');
@@ -195,7 +322,6 @@
       // JSON はそのまま JavaScript のリテラルとして正しいので、文字列に包まず埋め込む。
       // 文字列に包むと \t や \" が JS 側で先に展開されてしまい、JSON.parse が壊れる。
       var DATA = <?!= bootstrapJson ?>;
-      var CURRENT = 'home';
 
       /* ---------- 小物 ---------- */
       function esc(s) {
@@ -211,14 +337,15 @@
       function pct(r) { return Math.round((Number(r) || 0) * 100) + '%'; }
       function clamp(r) { return Math.max(0, Math.min(100, Math.round((Number(r) || 0) * 100))); }
       function el(id) { return document.getElementById(id); }
+
       function toast(msg) {
         var t = el('toast');
         t.textContent = msg;
-        t.style.display = 'block';
+        t.classList.add('show');
         clearTimeout(t._timer);
-        t._timer = setTimeout(function () { t.style.display = 'none'; }, 4200);
+        t._timer = setTimeout(function () { t.classList.remove('show'); }, 4200);
       }
-      function busy(on) { el('busy').style.display = on ? 'flex' : 'none'; }
+      function busy(on) { el('busy').classList.toggle('show', on); }
 
       function call(fnName, arg, onDone) {
         busy(true);
@@ -246,7 +373,15 @@
         return '<div class="card">' + (title ? '<h2>' + esc(title) + '</h2>' : '') + inner + '</div>';
       }
       function row(k, v, strong) {
-        return '<div class="row"><span class="k">' + esc(k) + '</span><span class="v' + (strong ? ' strong' : '') + '">' + v + '</span></div>';
+        return '<div class="row"><span class="k">' + esc(k) + '</span><span class="v' +
+          (strong ? ' strong' : '') + '">' + v + '</span></div>';
+      }
+      function totalRow(k, v) {
+        return '<div class="total"><div class="row"><span class="k">' + esc(k) +
+          '</span><span class="v strong">' + v + '</span></div></div>';
+      }
+      function badge(status) {
+        return '<span class="badge s-' + esc(status) + '">' + esc(status) + '</span>';
       }
 
       /* ---------- ホーム ---------- */
@@ -254,88 +389,101 @@
         var d = DATA;
         var html = '';
 
-        html += card(
-          '年間収入（額面） ' + d.targetYear + '年',
-          '<div class="big">' + yen(d.annual.totalRevenue) + '</div>' +
-            '<div class="sub">給与 ' + yen(d.annual.salaryRevenue) +
-            ' ／ 事業 ' + yen(d.annual.businessRevenue) +
-            ' ／ 雑 ' + yen(d.annual.miscRevenue) + '</div>'
-        );
+        // 一番近い壁（残りが少ない順）をヒーローに出す
+        var nearest = (d.walls || []).slice().sort(function (a, b) { return a.remaining - b.remaining; })[0];
+        html +=
+          '<div class="hero">' +
+          '<div class="label">' + d.targetYear + '年の収入（額面）</div>' +
+          '<div class="amount">' + yen(d.annual.totalRevenue) + '</div>' +
+          (nearest
+            ? '<div class="sub">' + esc(nearest.name) + 'まで あと ' +
+              (nearest.remaining < 0 ? yen(-nearest.remaining) + ' 超過' : yen(nearest.remaining)) + '</div>'
+            : '') +
+          '<div class="split">' +
+          '<div class="chip"><div class="k">給与</div><div class="v">' + yen(d.annual.salaryRevenue) + '</div></div>' +
+          '<div class="chip"><div class="k">事業</div><div class="v">' + yen(d.annual.businessRevenue) + '</div></div>' +
+          '<div class="chip"><div class="k">雑</div><div class="v">' + yen(d.annual.miscRevenue) + '</div></div>' +
+          '</div></div>';
 
-        d.walls.forEach(function (w) {
+        var wallsHtml = '';
+        (d.walls || []).forEach(function (w) {
           var over = w.remaining < 0;
-          html += card(
-            w.name + 'の壁',
-            '<div class="row"><h3>' + (over ? '超過' : '残り') + '</h3><span class="badge s-' + esc(w.status) + '">' + esc(w.status) + '</span></div>' +
-              '<div class="big' + (over ? ' neg' : '') + '">' + yen(Math.abs(w.remaining)) + '</div>' +
-              bar(w.ratio, w.status) +
-              '<div class="row"><span class="sub">' + yen(w.amount) + ' のうち ' + pct(w.ratio) + '</span>' +
-              '<span class="sub">更新 ' + esc(w.lastUpdated) + '</span></div>' +
-              (w.note ? '<div class="sub" style="margin-top:6px">' + esc(w.note) + '</div>' : '')
-          );
+          wallsHtml +=
+            '<div class="wall">' +
+            '<div class="head"><span class="name">' + esc(w.name) + '</span>' + badge(w.status) + '</div>' +
+            '<div class="rest' + (over ? ' neg' : '') + '">' +
+            (over ? '超過 ' : '') + yen(Math.abs(w.remaining)) + '</div>' +
+            bar(w.ratio, w.status) +
+            '<div class="meta"><span class="sub">' + yen(w.amount) + ' のうち ' + pct(w.ratio) + '</span>' +
+            '<span class="sub">更新 ' + esc(w.lastUpdated) + '</span></div>' +
+            (w.note ? '<div class="sub" style="margin-top:7px">' + esc(w.note) + '</div>' : '') +
+            '</div>';
         });
+        html += card('壁までの残り', wallsHtml || '<div class="empty">壁が登録されていません</div>');
 
         var hoursHtml = '';
-        if (!d.hours.length) {
+        if (!(d.hours || []).length) {
           hoursHtml = '<div class="empty">今月の勤務データはまだありません</div>';
         } else {
-          d.hours.forEach(function (h) {
+          d.hours.forEach(function (h, i) {
             hoursHtml +=
-              '<div style="margin-bottom:14px">' +
-              '<div class="row"><h3>' + esc(h.companyName) + '</h3><span class="badge s-' + esc(h.status) + '">' + esc(h.status) + '</span></div>' +
+              '<div class="' + (i ? 'block' : '') + '">' +
+              '<div class="head" style="display:flex;justify-content:space-between;align-items:center">' +
+              '<h3>' + esc(h.companyName) + '</h3>' + badge(h.status) + '</div>' +
               bar(h.ratio, h.status) +
               '<div class="row"><span class="sub">' + h.hours + ' / ' + h.limit + ' 時間（' + pct(h.ratio) + '）' +
-              (h.confirmed ? '' : ' ・上限は暫定') + '</span>' +
+              (h.confirmed ? '' : ' ・暫定') + '</span>' +
               '<span class="sub">' + h.days + '日 ' + yen(h.amount) + '</span></div>' +
               '</div>';
           });
         }
-        html += card(
-          '今月（' + d.yearMonth + '）の労働時間　上限の' + d.warnPercent + '%で注意・' + d.alertPercent + '%で警告',
-          hoursHtml
-        );
+        html += card('今月（' + esc(d.yearMonth) + '）の労働時間', hoursHtml);
 
         var weekly = (d.weekly || []).filter(function (w) { return w.isCurrentWeek; });
         if (weekly.length) {
           var weeklyHtml = '';
-          weekly.forEach(function (w) {
+          weekly.forEach(function (w, i) {
             weeklyHtml +=
-              '<div style="margin-bottom:14px">' +
-              '<div class="row"><h3>' + esc(w.companyName) + '</h3><span class="badge s-' + esc(w.status) + '">' + esc(w.status) + '</span></div>' +
+              '<div class="' + (i ? 'block' : '') + '">' +
+              '<div class="head" style="display:flex;justify-content:space-between;align-items:center">' +
+              '<h3>' + esc(w.companyName) + '</h3>' + badge(w.status) + '</div>' +
               bar(w.ratio, w.status) +
-              '<div class="row"><span class="sub">' + w.hours + ' / ' + w.limit + ' 時間（' + pct(w.ratio) + '）</span>' +
+              '<div class="row"><span class="sub">' + w.hours + ' / ' + w.limit + ' 時間</span>' +
               '<span class="sub">残り ' + w.remainingHours + 'h</span></div></div>';
           });
-          html += card('今週（' + esc(weekly[0].weekStart) + ' 〜 ' + esc(weekly[0].weekEnd) + '）の労働時間', weeklyHtml);
+          html += card('今週（' + esc(weekly[0].weekStart) + ' 〜 ' + esc(weekly[0].weekEnd) + '）', weeklyHtml);
         }
 
         var consecutive = (d.consecutive || []).filter(function (c) { return c.requiredMonths >= 2; });
         if (consecutive.length) {
           var conHtml = '';
-          consecutive.forEach(function (c) {
+          consecutive.forEach(function (c, i) {
             conHtml +=
-              '<div style="margin-bottom:14px">' +
-              '<div class="row"><h3>' + esc(c.companyName) + '</h3><span class="badge s-' + esc(c.status) + '">' + esc(c.status) + '</span></div>' +
-              '<div class="sub">条件：月' + c.limit + '時間以上が' + c.requiredMonths + 'ヶ月連続</div>' +
-              '<div class="sub">' + c.months.map(function (m) {
-                return esc(m.yearMonth) + ' ' + m.hours + 'h' + (m.over ? '（超）' : '');
+              '<div class="' + (i ? 'block' : '') + '">' +
+              '<div class="head" style="display:flex;justify-content:space-between;align-items:center">' +
+              '<h3>' + esc(c.companyName) + '</h3>' + badge(c.status) + '</div>' +
+              '<div class="sub" style="margin-top:6px">月' + c.limit + '時間以上が' + c.requiredMonths + 'ヶ月連続で対象</div>' +
+              '<div class="sub" style="margin-top:3px">' + c.months.map(function (m) {
+                return esc(m.yearMonth) + ' <b>' + m.hours + 'h</b>' + (m.over ? '（超）' : '');
               }).join('　/　') + '</div>' +
-              (c.message ? '<div class="sub" style="margin-top:6px">' + esc(c.message) + '</div>' : '') +
+              (c.message ? '<div class="sub" style="margin-top:7px">' + esc(c.message) + '</div>' : '') +
               '</div>';
           });
           html += card('連続月の判定', conHtml);
         }
 
         var listHtml = '';
-        if (!d.recentEntries.length) {
+        if (!(d.recentEntries || []).length) {
           listHtml = '<div class="empty">まだ取り込まれた勤務がありません</div>';
         } else {
           listHtml = '<ul class="list">';
           d.recentEntries.forEach(function (e) {
             listHtml +=
-              '<li><div class="row"><span>' + esc(e.date.slice(5)) + ' ' + esc(e.companyName) + (e.reconciled ? ' <span class="sub">照合済</span>' : '') + '</span>' +
+              '<li><div class="row"><span><b>' + esc(e.date.slice(5)) + '</b>　' + esc(e.companyName) +
+              (e.reconciled ? ' <span class="badge s-OK">照合済</span>' : '') + '</span>' +
               '<span class="v strong">' + yen(e.amount) + '</span></div>' +
-              '<div class="sub">' + esc(e.startTime) + '-' + esc(e.endTime) + ' ／ ' + e.workedHours + '時間</div></li>';
+              '<div class="sub">' + esc(e.startTime) + '-' + esc(e.endTime) + '　' + e.workedHours + '時間' +
+              (e.allowance ? '　手当 ' + yen(e.allowance) : '') + '</div></li>';
           });
           listHtml += '</ul>';
         }
@@ -350,42 +498,43 @@
         var html = '';
 
         html += card(
-          '年間収入（額面）の内訳　※源泉徴収前の総支給額',
+          '年間収入（額面）　※源泉徴収前の総支給額',
           row('給与収入（カレンダー）', yen(a.calendarRevenue)) +
+            (a.allowanceTotal ? row('　うち手当', yen(a.allowanceTotal)) : '') +
             row('給与収入（手入力）', yen(a.manualSalaryRevenue)) +
             row('事業収入', yen(a.businessRevenue)) +
             row('雑収入', yen(a.miscRevenue)) +
-            '<div class="divider"></div>' +
-            row('合計（壁の判定に使用）', yen(a.totalRevenue), true)
+            totalRow('合計（壁の判定に使用）', yen(a.totalRevenue))
         );
 
         html += card(
-          '合計所得金額　※収入額とは別の数値。税金の壁の判定に使う',
+          '合計所得金額　※収入額とは別の数値',
           row('給与所得', yen(a.salaryIncome)) +
-            '<div class="sub">給与収入 ' + yen(a.salaryRevenue) + ' − 給与所得控除 ' + yen(a.salaryDeduction) + '</div>' +
-            row('事業所得', yen(a.businessIncome)) +
-            '<div class="sub">事業収入 ' + yen(a.businessRevenue) + ' − 必要経費 ' + yen(a.businessExpenses) + '</div>' +
-            row('雑所得', yen(a.miscIncome)) +
+            '<div class="sub">給与収入 ' + yen(a.salaryRevenue) + ' − 控除 ' + yen(a.salaryDeduction) + '</div>' +
             '<div class="divider"></div>' +
-            row('合計所得金額', yen(a.totalIncome), true)
+            row('事業所得', yen(a.businessIncome)) +
+            '<div class="sub">事業収入 ' + yen(a.businessRevenue) + ' − 経費 ' + yen(a.businessExpenses) + '</div>' +
+            '<div class="divider"></div>' +
+            row('雑所得', yen(a.miscIncome)) +
+            totalRow('合計所得金額', yen(a.totalIncome))
         );
 
         var manualHtml = '';
-        if (!DATA.manualEntries.length) {
-          manualHtml = '<div class="empty">未登録です。業務委託分などをここに登録してください</div>';
+        if (!(DATA.manualEntries || []).length) {
+          manualHtml = '<div class="empty">未登録です</div>';
         } else {
           manualHtml = '<ul class="list">';
           DATA.manualEntries.forEach(function (m) {
             manualHtml +=
               '<li><div class="row"><span>' + esc(m.sourceName) + '</span><span class="v strong">' + yen(m.amount) + '</span></div>' +
-              '<div class="sub">' + esc(m.category) + ' ／ ' + esc(m.period) +
-              (m.expenses ? ' ／ 経費 ' + yen(m.expenses) : '') + '</div></li>';
+              '<div class="sub">' + esc(m.category) + '　' + esc(m.period) +
+              (m.expenses ? '　経費 ' + yen(m.expenses) : '') + '</div></li>';
           });
           manualHtml += '</ul>';
         }
-        html += card('カレンダー外の収入（手入力）', manualHtml);
+        html += card('カレンダー外の収入', manualHtml);
 
-        var options = DATA.categories.map(function (c) {
+        var options = (DATA.categories || []).map(function (c) {
           return '<option value="' + esc(c) + '"' + (c === '事業所得' ? ' selected' : '') + '>' + esc(c) + '</option>';
         }).join('');
         html += card(
@@ -413,69 +562,82 @@
       /* ---------- 見込み ---------- */
       function renderForecast() {
         var f = DATA.forecast || {};
-        var html = '';
 
+        if (f.pending) {
+          el('view-forecast').innerHTML = card(
+            'この先の見込み',
+            '<div class="skeleton" style="width:70%"></div>' +
+              '<div class="skeleton" style="width:90%;margin-top:10px"></div>' +
+              '<div class="skeleton" style="width:55%;margin-top:10px"></div>' +
+              '<div class="empty" style="margin-top:14px">カレンダーを読み込んでいます…</div>'
+          );
+          return;
+        }
         if (!f.available) {
-          el('view-forecast').innerHTML = card('この先の見込み', '<div class="empty">' + esc(f.reason || 'まだ取得できていません') + '</div>');
+          el('view-forecast').innerHTML = card('この先の見込み',
+            '<div class="empty">' + esc(f.reason || 'まだ取得できていません') + '</div>');
           return;
         }
 
-        html += card(
-          'この先' + f.days + '日の予定（' + esc(f.from) + ' 〜 ' + esc(f.to) + '）',
-          '<div class="big">' + f.plannedCount + '件 / ' + f.plannedHours + '時間</div>' +
-            '<div class="sub">予定分の収入 ' + yen(f.plannedRevenue) + '</div>'
-        );
+        var html = '';
+        html +=
+          '<div class="hero" style="background:linear-gradient(160deg,#0f766e,#0891b2)">' +
+          '<div class="label">この先' + f.days + '日の予定</div>' +
+          '<div class="amount">' + f.plannedCount + '件 / ' + f.plannedHours + '時間</div>' +
+          '<div class="sub">予定分の収入 ' + yen(f.plannedRevenue) + '　（' + esc(f.from) + ' 〜 ' + esc(f.to) + '）</div>' +
+          '</div>';
 
         var adviceHtml = '';
-        if (!f.advice.length) {
+        if (!(f.advice || []).length) {
           adviceHtml = '<div class="empty">特にありません</div>';
         } else {
           f.advice.forEach(function (a) {
-            adviceHtml +=
-              '<div class="advice a-' + esc(a.level) + '"><span class="badge s-' + esc(a.level) + '">' + esc(a.level) +
-              '</span><div>' + esc(a.text) + '</div></div>';
+            adviceHtml += '<div class="advice">' + badge(a.level) + '<div>' + esc(a.text) + '</div></div>';
           });
         }
         html += card('勤務調整のアドバイス', adviceHtml);
 
         var monthsHtml = '';
-        if (!f.months.length) {
+        if (!(f.months || []).length) {
           monthsHtml = '<div class="empty">この先の勤務予定はありません</div>';
         } else {
-          f.months.forEach(function (m) {
+          f.months.forEach(function (m, i) {
             monthsHtml +=
-              '<div style="margin-bottom:14px">' +
-              '<div class="row"><h3>' + esc(m.companyName) + '<span class="sub">　' + esc(m.yearMonth) + '</span></h3>' +
-              '<span class="badge s-' + esc(m.status) + '">' + esc(m.status) + '</span></div>' +
+              '<div class="' + (i ? 'block' : '') + '">' +
+              '<div class="head" style="display:flex;justify-content:space-between;align-items:center">' +
+              '<h3>' + esc(m.companyName) + ' <span class="sub">' + esc(m.yearMonth) + '</span></h3>' +
+              badge(m.status) + '</div>' +
               bar(m.ratio, m.status) +
-              '<div class="row"><span class="sub">実績 ' + m.actualHours + 'h ＋ 予定 ' + m.plannedHours + 'h ＝ ' +
-              '<b>' + m.projectedHours + 'h</b> / ' + m.limit + 'h</span>' +
-              '<span class="sub">' + (m.overHours > 0 ? m.overHours + 'h 超過' : '余裕 ' + m.remainingHours + 'h') + '</span></div>' +
-              '</div>';
+              '<div class="row"><span class="sub">実績 ' + m.actualHours + 'h ＋ 予定 ' + m.plannedHours +
+              'h ＝ <b>' + m.projectedHours + 'h</b> / ' + m.limit + 'h</span>' +
+              '<span class="sub">' + (m.overHours > 0 ? m.overHours + 'h 超過' : '余裕 ' + m.remainingHours + 'h') +
+              '</span></div></div>';
           });
         }
         html += card('月間労働時間の見込み', monthsHtml);
 
         var wallHtml = '';
-        f.walls.forEach(function (w) {
+        (f.walls || []).forEach(function (w, i) {
           wallHtml +=
-            '<div style="margin-bottom:14px">' +
-            '<div class="row"><h3>' + esc(w.name) + '</h3><span class="badge s-' + esc(w.status) + '">' + esc(w.status) + '</span></div>' +
+            '<div class="' + (i ? 'block' : '') + '">' +
+            '<div class="head" style="display:flex;justify-content:space-between;align-items:center">' +
+            '<h3>' + esc(w.name) + '</h3>' + badge(w.status) + '</div>' +
             bar(w.ratio, w.status) +
-            '<div class="row"><span class="sub">予定を全部こなすと ' + yen(w.projectedRevenue) + '</span>' +
-            '<span class="sub">' + (w.remaining < 0 ? yen(-w.remaining) + ' 超過' : '残り ' + yen(w.remaining)) + '</span></div>' +
-            '</div>';
+            '<div class="row"><span class="sub">こなすと ' + yen(w.projectedRevenue) + '</span>' +
+            '<span class="sub">' + (w.remaining < 0 ? yen(-w.remaining) + ' 超過' : '残り ' + yen(w.remaining)) +
+            '</span></div></div>';
         });
-        html += card('予定を全部こなした場合の壁', wallHtml);
+        html += card('予定を全部こなした場合', wallHtml);
 
         if (f.pace && f.pace.available) {
           html += card(
             '年末の着地（目安・カレンダー分のみ）',
             row('直近' + f.pace.months + 'ヶ月の平均', yen(f.pace.monthlyAverage) + ' / 月') +
               row('年末までの残り', f.pace.remainingMonths + 'ヶ月') +
-              row('年末見込み', yen(f.pace.yearEndEstimate), true) +
+              totalRow('年末見込み', yen(f.pace.yearEndEstimate)) +
               (f.pace.reach
-                ? '<div class="sub" style="margin-top:8px">このペースだと ' + esc(f.pace.reach.wallName) + ' の壁に ' + esc(f.pace.reach.yearMonth) + ' ごろ到達します。</div>'
+                ? '<div class="sub" style="margin-top:12px">このペースだと ' + esc(f.pace.reach.wallName) +
+                  ' に ' + esc(f.pace.reach.yearMonth) + ' ごろ到達します。</div>'
                 : '')
           );
         }
@@ -491,26 +653,25 @@
 
         var html = card(
           '月次の答え合わせ',
-          '<div class="sub">給与明細・支給照会の合計額（額面）を入れると、カレンダーからの推定額との差を確認できます。</div>' +
+          '<div class="sub">給与明細の合計額（額面）を入れると、カレンダーからの推定額との差が出ます。</div>' +
             '<label for="rc-month">対象月</label><select id="rc-month">' + monthOpts + '</select>' +
             '<label for="rc-company">勤務先</label><select id="rc-company">' + compOpts + '</select>' +
-            '<div class="divider"></div>' +
-            '<div class="row"><span class="k">カレンダー推定額</span><span class="v big" id="rc-est" style="font-size:22px">-</span></div>' +
+            '<div class="estimate"><div class="k">カレンダーからの推定額</div><div class="v" id="rc-est">-</div></div>' +
             '<label for="rc-actual">実際の支給額（額面・円）</label><input id="rc-actual" type="number" inputmode="numeric" />' +
             '<label for="rc-note">メモ（任意）</label><input id="rc-note" placeholder="交通費込み など" />' +
             '<button class="primary" id="rc-save">保存して差分を見る</button>'
         );
 
         var histHtml = '';
-        if (!DATA.reconcileEntries.length) {
+        if (!(DATA.reconcileEntries || []).length) {
           histHtml = '<div class="empty">まだ入力がありません</div>';
         } else {
           histHtml = '<ul class="list">';
           DATA.reconcileEntries.forEach(function (r) {
             histHtml +=
-              '<li><div class="row"><span>' + esc(r.yearMonth) + ' ' + esc(r.companyName) + '</span>' +
-              '<span class="badge s-' + esc(r.status) + '">' + esc(r.status) + '</span></div>' +
-              '<div class="sub">推定 ' + yen(r.estimated) + ' ／ 実額 ' + yen(r.actual) + ' ／ 差分 ' + yen(r.diff) + '</div></li>';
+              '<li><div class="row"><span><b>' + esc(r.yearMonth) + '</b>　' + esc(r.companyName) + '</span>' +
+              badge(r.status) + '</div>' +
+              '<div class="sub">推定 ' + yen(r.estimated) + '　実額 ' + yen(r.actual) + '　差分 ' + yen(r.diff) + '</div></li>';
           });
           histHtml += '</ul>';
         }
@@ -542,40 +703,40 @@
       function renderSettings() {
         var html = '';
         var limitsHtml = '';
-        if (!DATA.limits.length) {
+        if (!(DATA.limits || []).length) {
           limitsHtml = '<div class="empty">勤務先はカレンダーの取り込み時に自動登録されます</div>';
         } else {
           DATA.limits.forEach(function (l, i) {
             limitsHtml +=
-              '<div style="margin-bottom:16px">' +
-              '<div class="row"><h3>' + esc(l.companyName) + '</h3>' +
+              '<div class="' + (i ? 'block' : '') + '">' +
+              '<div class="head" style="display:flex;justify-content:space-between;align-items:center">' +
+              '<h3>' + esc(l.companyName) + '</h3>' +
               '<span class="badge s-' + (l.confirmed ? '正常">確定' : '注意">暫定') + '</span></div>' +
-              '<div class="inline" style="margin-top:8px">' +
+              '<div class="inline" style="margin-top:10px">' +
               '<input type="number" inputmode="numeric" id="lim-' + i + '" value="' + l.limit + '" />' +
               '<span class="sub">時間/月</span></div>' +
-              '<div class="inline" style="margin-top:6px">' +
+              '<div class="inline" style="margin-top:8px">' +
               '<input type="number" inputmode="numeric" id="wk-' + i + '" value="' + (l.weeklyLimit || '') + '" placeholder="未設定" />' +
               '<span class="sub">時間/週</span></div>' +
-              '<div class="inline" style="margin-top:6px">' +
+              '<div class="inline" style="margin-top:8px">' +
               '<input type="number" inputmode="numeric" id="con-' + i + '" value="' + (l.consecutiveMonths || 1) + '" />' +
-              '<span class="sub">ヶ月連続で判定</span>' +
+              '<span class="sub">ヶ月連続</span>' +
               '<button class="small" data-limit="' + i + '">保存</button></div>' +
-              '<label class="check"><input type="checkbox" id="cfm-' + i + '"' + (l.confirmed ? ' checked' : '') + ' />会社から正式な回答をもらった</label>' +
-              (l.basis ? '<div class="sub" style="margin-top:6px">根拠：' + esc(l.basis) + '</div>' : '') +
+              '<label class="check"><input type="checkbox" id="cfm-' + i + '"' + (l.confirmed ? ' checked' : '') +
+              ' />会社から正式な回答をもらった</label>' +
+              (l.basis ? '<div class="sub" style="margin-top:7px">根拠：' + esc(l.basis) + '</div>' : '') +
               '</div>';
           });
         }
         html += card(
-          '勤務先ごとの月間上限（4分の3基準）',
-          '<div class="sub" style="margin-bottom:12px">正社員の所定労働時間の回答が来たら、暫定値' +
-            DATA.defaultMonthlyLimit + '時間を実数に差し替えてください。' +
-            '週の上限は「正社員の週所定労働時間の4分の3」が示された場合に入れます（未設定なら判定しません）。' +
-            '連続月数は「月◯時間以上が◯ヶ月連続で対象」と言われた場合にその月数を入れます（通常は1）。</div>' + limitsHtml
+          '勤務先ごとの上限（4分の3基準）',
+          '<div class="sub" style="margin-bottom:14px">週の上限は「正社員の週所定労働時間の4分の3」が示された場合に入れます（未設定なら判定しません）。' +
+            '連続月数は「月◯時間以上が◯ヶ月連続で対象」と言われた場合のみ変更します（通常は1）。</div>' + limitsHtml
         );
 
         html += card(
           'カレンダーの取り込み',
-          '<div class="sub">毎日23:30に自動で取り込まれます。手動で取り込みたいときはこちら。</div>' +
+          '<div class="sub">アプリを開くたびに直近1ヶ月分を自動で取り込みます。毎晩23:30にも実行されます。</div>' +
             '<button class="primary" id="run-today">今日の分を取り込む</button>' +
             '<label for="imp-date">日付を指定して取り込み直す</label>' +
             '<div class="inline"><input id="imp-date" placeholder="2026-08-20" /><button class="small" id="imp-run">実行</button></div>'
@@ -584,8 +745,8 @@
         html += card(
           'データ',
           '<div class="sub">明細の修正や過去データの一括編集はスプレッドシートから行えます。</div>' +
-            '<div style="margin-top:10px"><a href="' + esc(DATA.spreadsheetUrl) + '" target="_blank" rel="noopener">スプレッドシートを開く</a></div>' +
-            '<div class="sub" style="margin-top:10px">最終更新 ' + esc(DATA.generatedAt) + '</div>'
+            '<div style="margin-top:12px"><a href="' + esc(DATA.spreadsheetUrl) + '" target="_blank" rel="noopener">スプレッドシートを開く →</a></div>' +
+            '<div class="sub" style="margin-top:12px">最終更新 ' + esc(DATA.generatedAt) + '</div>'
         );
 
         el('view-settings').innerHTML = html;
@@ -614,14 +775,21 @@
       }
 
       /* ---------- 描画 ---------- */
+      function setStatus(text, spinning) {
+        var level = DATA && DATA.level ? DATA.level : '正常';
+        el('updated').innerHTML = spinning
+          ? '<span class="spin"></span>' + esc(text)
+          : '<span class="dot ' + esc(level) + '"></span>' + esc(text);
+      }
+
       function render() {
         if (DATA.error) {
           el('view-home').innerHTML = card('エラー', '<div class="sub">' + esc(DATA.error) + '</div>');
-          el('updated').textContent = '';
+          setStatus('エラー', false);
           el('disclaimer').textContent = DATA.disclaimer || '';
           return;
         }
-        el('updated').textContent = DATA.generatedAt + '　' + DATA.level;
+        setStatus(DATA.generatedAt + '　' + DATA.level, false);
         el('disclaimer').textContent = DATA.disclaimer;
         renderHome();
         renderIncome();
@@ -630,24 +798,40 @@
         renderSettings();
       }
 
+      /* ---------- 表示後の同期 ---------- */
+      function syncCalendar(showToast) {
+        setStatus('カレンダーを確認中…', true);
+        google.script.run
+          .withSuccessHandler(function (data) {
+            DATA = data;
+            render();
+            if (showToast) toast('最新の状態にしました');
+          })
+          .withFailureHandler(function (err) {
+            setStatus('同期できませんでした', false);
+            toast('エラー: ' + err.message);
+          })
+          .appSyncCalendar();
+      }
+
       Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (btn) {
         btn.addEventListener('click', function () {
-          CURRENT = btn.getAttribute('data-view');
+          var view = btn.getAttribute('data-view');
           Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
             b.classList.toggle('active', b === btn);
           });
           Array.prototype.forEach.call(document.querySelectorAll('.view'), function (v) {
-            v.classList.toggle('active', v.id === 'view-' + CURRENT);
+            v.classList.toggle('active', v.id === 'view-' + view);
           });
           window.scrollTo(0, 0);
         });
       });
 
-      el('reload').addEventListener('click', function () {
-        call('appRefresh', undefined, function () { toast('最新の状態にしました'); });
-      });
+      el('reload').addEventListener('click', function () { syncCalendar(true); });
 
       render();
+      // 画面を出したあとにカレンダーを読む。ここを待つと表示が遅くなるため。
+      if (DATA.needsSync) syncCalendar(false);
     </script>
   </body>
 </html>

@@ -38,7 +38,9 @@ SCHEMA[SHEETS.CALENDAR] = [
   'estimated_amount',
   'reconciled',
   'source_title',
-  'updated_at'
+  'updated_at',
+  // 後から追加した列。既存シートの並びを崩さないよう末尾に足している
+  'allowance'
 ];
 SCHEMA[SHEETS.MANUAL] = [
   'id',
@@ -94,7 +96,8 @@ HEADER_LABELS[SHEETS.CALENDAR] = [
   '推定収入(円)',
   '照合済み',
   '元の予定タイトル',
-  '更新日時'
+  '更新日時',
+  '手当(円)'
 ];
 HEADER_LABELS[SHEETS.MANUAL] = ['ID', '収入元', '区分', '対象期間', '金額(円)', '必要経費(円)', 'メモ', '更新日時'];
 HEADER_LABELS[SHEETS.LIMITS] = [
@@ -222,7 +225,7 @@ function getSheet_(name) {
  * シートの構成（名前・見出し・初期データ）のバージョン。
  * 列や壁を増やしたらこの値を上げること。次回の実行で移行処理が1度だけ走る。
  */
-var SCHEMA_VERSION = '2026-08-28b';
+var SCHEMA_VERSION = '2026-08-29-allowance';
 
 /** スクリプトプロパティ（使えない環境では null） */
 function getScriptProperties_() {

@@ -373,7 +373,13 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   aRun('ensureSheets_()');
 
   check('自動取り込み: 開く前は空', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 0);
+
+  // 画面表示（doGet）ではカレンダーに触らない＝待たされない
   aRun('doGet()');
+  check('自動取り込み: 画面表示ではまだ取り込まない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 0);
+
+  // 表示後の同期で取り込む
+  aRun('appSyncCalendar()');
   const imported = aRun('readTable_(SHEETS.CALENDAR).rows');
   check('自動取り込み: アプリを開くと直近1ヶ月分が入る', imported.length, 3);
   check(
@@ -386,7 +392,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   // 2回目以降は、内容が変わっていないので書き込みが発生しないこと
   const calendarSheet = autoEnv.spreadsheet.getSheetByName('勤務明細');
   calendarSheet.writes = 0;
-  aRun('doGet()');
+  aRun('appSyncCalendar()');
   check('自動取り込み: 変わっていなければ書き込まない', calendarSheet.writes, 0);
   aRun('appRefresh()');
   check('自動取り込み: 何度開いても二重にならない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 3);
@@ -407,7 +413,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
       };
     };
   })(autoEnv.sandbox.CalendarApp.getDefaultCalendar);
-  aRun('doGet()');
+  aRun('appSyncCalendar()');
   const changed = aRun('readTable_(SHEETS.CALENDAR).rows').filter((r) => String(r.id).indexOf('auto-today') === 0)[0];
   check('自動取り込み: 予定を直すと反映される', [changed.worked_hours, changed.estimated_amount], [6, 9000]);
   check('自動取り込み: 直した1行だけ書き込む', calendarSheet.writes, 1);
@@ -419,6 +425,74 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   check('期間取り込み: 45日前の分まで拾う', ranged.entries.length, 4);
   check('期間取り込み: 期間の表示', [ranged.days, ranged.from === key(45), ranged.to === key(0)], [46, true, true]);
   check('期間取り込み: それでも重複しない', aRun('readTable_(SHEETS.CALENDAR).rows.length'), 4);
+}
+
+/* --- 手当（カレンダーに書いた固定額が収入に入るか） --- */
+{
+  const allowEnv = makeSandbox({
+    '2026-08-10': [
+      {
+        id: 'evt-allow',
+        title: '[バイトレ] 09:00-17:00 休憩なし 時給1700円 交通費800円',
+        start: new Date(2026, 7, 10, 9, 0),
+        end: new Date(2026, 7, 10, 17, 0)
+      },
+      {
+        id: 'evt-plain',
+        title: '[Kakedas] 09:00-18:00 休憩1h 時給1226円',
+        start: new Date(2026, 7, 10, 9, 0),
+        end: new Date(2026, 7, 10, 18, 0)
+      }
+    ]
+  });
+  const alCtx = vm.createContext(allowEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), alCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), alCtx, { filename: file });
+  }
+  const alRun = (expr) => vm.runInContext(expr, alCtx);
+  alRun('ensureSheets_()');
+  alRun('importDateRange_(new Date(2026, 7, 10), new Date(2026, 7, 10))');
+
+  const rows = alRun('readTable_(SHEETS.CALENDAR).rows');
+  const allow = rows.filter((r) => r.company_name === 'バイトレ')[0];
+  const plain = rows.filter((r) => r.company_name === 'Kakedas')[0];
+
+  check('手当: 明細に手当が保存される', Number(allow.allowance), 800);
+  check('手当: 推定収入に手当が乗る', Number(allow.estimated_amount), 8 * 1700 + 800);
+  check('手当: 手当が無い勤務は従来どおり', [Number(plain.allowance), Number(plain.estimated_amount)], [0, 9808]);
+
+  const snap = alRun('buildSnapshot_(new Date(2026, 7, 10, 23, 30), null)');
+  check('手当: 年間収入に含まれる', snap.annual.totalRevenue, 8 * 1700 + 800 + 9808);
+  check('手当: 手当の合計を別に持つ', snap.annual.allowanceTotal, 800);
+
+  const app = alRun('buildAppData_()');
+  check(
+    '手当: アプリの明細に手当が出る',
+    app.recentEntries.filter((e) => e.companyName === 'バイトレ')[0].allowance,
+    800
+  );
+  check('手当: アプリの年間集計に手当の合計が入る', app.annual.allowanceTotal, 800);
+
+  // 手当を書き換えたら反映されること
+  allowEnv.sandbox.CalendarApp.getDefaultCalendar = (function (original) {
+    return function () {
+      const calendar = original();
+      return {
+        getEventsForDay: calendar.getEventsForDay,
+        getEvents: (start, end) =>
+          calendar.getEvents(start, end).map((e) => {
+            if (e.getId() === 'evt-allow') e.title = '[バイトレ] 09:00-17:00 休憩なし 時給1700円 交通費1200円';
+            return e;
+          })
+      };
+    };
+  })(allowEnv.sandbox.CalendarApp.getDefaultCalendar);
+  alRun('beginExecution_(); importDateRange_(new Date(2026, 7, 10), new Date(2026, 7, 10))');
+  const updated = alRun('readTable_(SHEETS.CALENDAR).rows').filter((r) => r.company_name === 'バイトレ')[0];
+  check('手当: 書き換えると反映される', [Number(updated.allowance), Number(updated.estimated_amount)], [1200, 8 * 1700 + 1200]);
+  check('手当: 書き換えても重複しない', alRun('readTable_(SHEETS.CALENDAR).rows.length'), 2);
 }
 
 /* --- 複数アカウントのカレンダーをまとめて取り込む --- */
@@ -708,15 +782,21 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
     id: 'r1', year_month: '2026-07', company_name: '会社P', actual_amount: 100000,
     estimated_amount: 100000, diff: 0, diff_rate: '0%', status: 'OK', note: '', entered_at: ''
   }])`);
-  perfRun('doGet()'); // 1回目で取り込みを済ませる
+  perfRun('appSyncCalendar()'); // 1回目で取り込みを済ませる
 
+  // 画面が出るまで（doGet）にかかる往復。ここが体感速度を決める。
   apiCalls.reset();
   perfRun('doGet()');
+  check('表示速度: 画面表示でカレンダーを待たない', apiCalls.calendarFetch, 0);
+  check('表示速度: 画面表示では書き込まない', apiCalls.sheetWrite, 0);
+  check('表示速度: 画面表示の往復は7回以下', apiCalls.total <= 7, true);
 
-  check('表示速度: カレンダーの取得は1回だけ', apiCalls.calendarFetch, 1);
-  check('表示速度: 変更が無ければシートに書き込まない', apiCalls.sheetWrite, 0);
-  check('表示速度: シート読み取りは表の数（7）以下', apiCalls.sheetRead <= 7, true);
-  check('表示速度: 往復の合計は8回以下', apiCalls.total <= 8, true);
+  // 表示後の同期
+  apiCalls.reset();
+  perfRun('appSyncCalendar()');
+  check('同期: カレンダーの取得は1回だけ', apiCalls.calendarFetch, 1);
+  check('同期: 変更が無ければシートに書き込まない', apiCalls.sheetWrite, 0);
+  check('同期: 往復の合計は9回以下', apiCalls.total <= 9, true);
 
   // 同じ表を何度読んでも往復は1回だけであること
   apiCalls.reset();

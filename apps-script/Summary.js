@@ -3,7 +3,7 @@
 var SUMMARY_COLS = 6;
 
 /** 各シートを読み込み、その時点の集計結果（スナップショット）を作る */
-function buildSnapshot_(today, runInfo) {
+function buildSnapshot_(today, runInfo, options) {
   var targetYear = resolveTargetYear_(today);
   var yearMonth = formatYearMonth_(today);
   var calendarRows = readTable_(SHEETS.CALENDAR).rows;
@@ -17,7 +17,11 @@ function buildSnapshot_(today, runInfo) {
   var hours = aggregateMonthlyHours_(calendarRows, limitRows, yearMonth);
   var weekly = aggregateWeeklyHours_(calendarRows, limitRows, today);
   var consecutive = evaluateConsecutiveMonths_(calendarRows, limitRows, today);
-  var forecast = buildForecast_(calendarRows, limitRows, walls, annual, today);
+  // 見込みはカレンダーを読むため時間がかかる。アプリの初回表示では飛ばして
+  // 画面を先に出し、表示後の同期で埋める（options.skipForecast）。
+  var forecast = options && options.skipForecast
+    ? { available: false, pending: true, reason: '読み込み中です', advice: [] }
+    : buildForecast_(calendarRows, limitRows, walls, annual, today);
 
   var messages = [];
   var tzWarning = timeZoneWarning_();

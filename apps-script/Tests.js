@@ -51,6 +51,31 @@ function runTests() {
   var p7 = parseWorkEventTitle_('[A] 休憩なし 時給1000円');
   check('タイトルに時刻なし: 予定の時刻を使う', [p7.ok, p7.hasTimeRange], [true, false]);
 
+  /* --- 手当（単発バイトで出る固定額） --- */
+  var al1 = parseWorkEventTitle_('[バイトレ] 09:00-17:00 休憩なし 時給1700円 手当1000円');
+  check('手当: 基本形', [al1.ok, al1.allowance], [true, 1000]);
+  check('手当: 交通費も拾う', parseWorkEventTitle_('[A] 09:00-17:00 休憩なし 時給1000円 交通費500円').allowance, 500);
+  check('手当: 複数あれば合算', parseWorkEventTitle_('[A] 09:00-17:00 休憩なし 時給1000円 手当1000円 交通費500円').allowance, 1500);
+  check('手当: 〇〇手当の形も拾う', parseWorkEventTitle_('[A] 09:00-17:00 休憩なし 時給1000円 食事手当800円').allowance, 800);
+  check('手当: 日当も拾う', parseWorkEventTitle_('[A] 09:00-17:00 休憩なし 時給1000円 日当2000円').allowance, 2000);
+  check('手当: プラス記号つき', parseWorkEventTitle_('[A] 09:00-17:00 休憩なし 時給1000円 手当+1,200円').allowance, 1200);
+  check('手当: 手当なしは0', parseWorkEventTitle_('[A] 09:00-17:00 休憩なし 時給1000円 手当なし').allowance, 0);
+  check('手当: 記載が無ければ0', parseWorkEventTitle_('[A] 09:00-17:00 休憩なし 時給1000円').allowance, 0);
+  check('手当: 全角でも拾う', parseWorkEventTitle_('［Ａ］ ０９：００−１７：００ 休憩なし 時給１０００円 手当１，０００円').allowance, 1000);
+  check('手当: 時給と取り違えない', parseWorkEventTitle_('[A] 09:00-17:00 休憩なし 時給1000円 手当500円').hourlyWage, 1000);
+
+  check('推定収入: 手当を足す', computeEstimatedAmount_(8, 1200, 1000), 8 * 1200 + 1000);
+  check('推定収入: 手当が無くても従来どおり', computeEstimatedAmount_(8, 1200), 9600);
+  check('推定収入: 手当だけの端数も四捨五入', computeEstimatedAmount_(0, 0, 1500), 1500);
+
+  var allowanceRows = [
+    { date: '2026-08-01', company_name: 'A', worked_hours: 8, estimated_amount: 10600, allowance: 1000 },
+    { date: '2026-08-02', company_name: 'A', worked_hours: 8, estimated_amount: 9600, allowance: 0 }
+  ];
+  var withAllowance = aggregateAnnual_(allowanceRows, [], 2026);
+  check('手当: 年間の収入に含まれる', withAllowance.calendarRevenue, 20200);
+  check('手当: 手当だけの合計も出す', withAllowance.allowanceTotal, 1000);
+
   /* --- 実働時間・推定収入 --- */
   check('実働時間: 9:00-18:00 休憩1h', computeWorkedHours_('09:00', '18:00', 1), 8);
   check('実働時間: 13:00-17:00 休憩0', computeWorkedHours_('13:00', '17:00', 0), 4);

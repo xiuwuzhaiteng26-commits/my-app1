@@ -28,10 +28,12 @@ var SEED_MANUAL_INCOME = [];
 
 /**
  * カレンダーに入っていない、既に働いた分のシフト
- * [日付, 勤務先, 開始, 終了, 休憩(h), 時給(円)]
+ * [日付, 勤務先, 開始, 終了, 休憩(h), 時給(円), 手当(円)]
+ * 手当は省略可（単発バイトで出る交通費・食事補助などの固定額）。
  *
  * 書き方:
  *   ['2026-06-10', '〇〇', '09:00', '18:00', 1, 1200]
+ *   ['2026-06-11', '〇〇', '09:00', '17:00', 0, 1500, 1000]
  */
 var SEED_SHIFTS = [];
 
@@ -142,6 +144,7 @@ function seedShifts_() {
     var endTime = shift[3];
     var breakHours = shift[4];
     var hourlyWage = shift[5];
+    var allowance = toNumber_(shift[6]);
     var id = 'seed-shift\t' + date + '\t' + companyName + '\t' + startTime;
     var already = existing[shiftKey_(date, companyName, startTime)];
     if (already && already !== id) {
@@ -159,10 +162,11 @@ function seedShifts_() {
       break_hours: breakHours,
       worked_hours: round2_(workedHours),
       hourly_wage: hourlyWage,
-      estimated_amount: computeEstimatedAmount_(workedHours, hourlyWage),
+      estimated_amount: computeEstimatedAmount_(workedHours, hourlyWage, allowance),
       reconciled: false,
       source_title: '手入力（会話で確定した実績）',
-      updated_at: now
+      updated_at: now,
+      allowance: allowance
     });
   });
 

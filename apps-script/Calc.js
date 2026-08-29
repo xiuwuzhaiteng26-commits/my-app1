@@ -20,9 +20,15 @@ function computeWorkedHours_(startTime, endTime, breakHours) {
   return net / 60;
 }
 
-/** その日の推定収入（額面） = 実働時間 × 時給。円未満は四捨五入 */
-function computeEstimatedAmount_(workedHours, hourlyWage) {
-  return Math.round(Number(workedHours || 0) * Number(hourlyWage || 0));
+/**
+ * その日の推定収入（額面） = 実働時間 × 時給 ＋ 手当。円未満は四捨五入。
+ *
+ * 手当は単発バイトで就業先ごとに出る固定額（交通費・食事補助など）。
+ * 額面に含まれるものとして時給分に足す。
+ */
+function computeEstimatedAmount_(workedHours, hourlyWage, allowance) {
+  var base = Math.round(Number(workedHours || 0) * Number(hourlyWage || 0));
+  return base + Math.round(Number(allowance || 0));
 }
 
 /** 給与所得控除（CONFIG.salaryDeduction の表に従う） */
@@ -51,6 +57,7 @@ function computeSalaryDeduction_(salaryRevenue) {
 function aggregateAnnual_(calendarRows, manualRows, targetYear) {
   var salaryRevenue = 0;
   var calendarRevenue = 0;
+  var allowanceTotal = 0;
   var manualSalaryRevenue = 0;
   var business = { revenue: 0, expenses: 0 };
   var misc = { revenue: 0, expenses: 0 };
@@ -60,6 +67,7 @@ function aggregateAnnual_(calendarRows, manualRows, targetYear) {
     var year = yearOfDateString_(toDateString_(r.date));
     if (year !== targetYear) return;
     calendarRevenue += toNumber_(r.estimated_amount);
+    allowanceTotal += toNumber_(r.allowance);
   });
 
   manualRows.forEach(function (r) {
@@ -100,6 +108,7 @@ function aggregateAnnual_(calendarRows, manualRows, targetYear) {
   return {
     targetYear: targetYear,
     calendarRevenue: calendarRevenue,
+    allowanceTotal: allowanceTotal,
     manualSalaryRevenue: manualSalaryRevenue,
     salaryRevenue: salaryRevenue,
     businessRevenue: business.revenue,

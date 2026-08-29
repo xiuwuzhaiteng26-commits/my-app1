@@ -38,6 +38,7 @@ function parseWorkEventTitle_(rawTitle) {
     hasTimeRange: false,
     breakHours: 0,
     hourlyWage: 0,
+    allowance: 0,
     normalizedTitle: title
   };
 
@@ -86,10 +87,34 @@ function parseWorkEventTitle_(rawTitle) {
     return res;
   }
 
+  res.allowance = parseAllowance_(title);
+
   res.ok = true;
   res.kind = 'work';
   res.reason = '';
   return res;
+}
+
+/**
+ * 手当（時給とは別に、その勤務1回につき出る固定額）を読み取る。
+ *
+ * 単発バイトでは就業先ごとに交通費・食事補助などが出るため、時給とは
+ * 別建てで合算できるようにしている。複数書いてあれば全部足す。
+ *
+ * 対応: 手当1000円 / 交通費500円 / 手当+1000円 / 食事手当500円 など
+ * 「手当なし」と書いた場合は0。
+ */
+function parseAllowance_(title) {
+  if (/(?:手当|交通費)\s*(?:なし|ナシ|無し)/.test(title)) return 0;
+
+  var total = 0;
+  // 「〇〇手当」「交通費」「日当」に続く金額を全部拾う
+  var pattern = /(?:[^\s\d]{0,4}手当|交通費|日当)\s*\+?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*円?/g;
+  var match;
+  while ((match = pattern.exec(title)) !== null) {
+    total += toNumber_(match[1]);
+  }
+  return total;
 }
 
 /**

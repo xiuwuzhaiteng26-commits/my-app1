@@ -15,9 +15,11 @@ function doGet() {
   try {
     beginExecution_();
     ensureSheets_();
-    prefetchCalendar_(new Date());
-    autoImportRecent_();
-    payload = buildAppData_();
+    // ここではカレンダーに触らない。カレンダーの通信は1〜数秒かかるため、
+    // 待つと画面が出るまでずっと白いままになる。
+    // 先にシートの内容だけで画面を出し、表示後に appSyncCalendar で取り込む。
+    payload = buildAppData_({ skipForecast: true });
+    payload.needsSync = true;
   } catch (e) {
     payload = { error: e.message, disclaimer: CONFIG.disclaimer };
   }
@@ -34,6 +36,18 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .addMetaTag('mobile-web-app-capable', 'yes')
     .addMetaTag('apple-mobile-web-app-capable', 'yes');
+}
+
+/**
+ * 画面が表示されたあとに呼ばれ、カレンダーの取り込みと見込みの計算を行う。
+ * 重い処理をここに寄せることで、最初の表示を待たせない。
+ */
+function appSyncCalendar() {
+  beginExecution_();
+  ensureSheets_();
+  prefetchCalendar_(new Date());
+  autoImportRecent_();
+  return buildAppData_();
 }
 
 /**
@@ -55,9 +69,9 @@ function autoImportRecent_() {
 }
 
 /** 画面に表示するデータ一式 */
-function buildAppData_() {
+function buildAppData_(options) {
   var now = new Date();
-  var snapshot = buildSnapshot_(now, null);
+  var snapshot = buildSnapshot_(now, null, options);
   var a = snapshot.annual;
 
   var calendarRows = readTable_(SHEETS.CALENDAR).rows;
@@ -70,6 +84,7 @@ function buildAppData_() {
         endTime: toTimeString_(r.end_time),
         workedHours: toNumber_(r.worked_hours),
         amount: toNumber_(r.estimated_amount),
+        allowance: toNumber_(r.allowance),
         reconciled: toBool_(r.reconciled)
       };
     })
@@ -143,6 +158,7 @@ function buildAppData_() {
       miscRevenue: a.miscRevenue,
       miscExpenses: a.miscExpenses,
       totalRevenue: a.totalRevenue,
+      allowanceTotal: a.allowanceTotal,
       salaryDeduction: a.salaryDeduction,
       salaryIncome: a.salaryIncome,
       businessIncome: a.businessIncome,

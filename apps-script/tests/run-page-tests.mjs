@@ -44,7 +44,10 @@ vm.runInContext('setupSheets()', ctx);
 // タブ区切りのキーや記号を含むデータでも壊れないことを見る
 vm.runInContext(
   `SEED_MANUAL_INCOME = [{ source_name: '"引用符" と \\\\ と ' + String.fromCharCode(39) + 'アポストロフィ', income_category: '事業所得', period: '2026-03', amount: 50000, expenses: 1000, note: '改行\\nタブ\\tを含むメモ' }];
-   SEED_SHIFTS = [['2026-08-01', '会社A', '09:00', '18:00', 1, 1200]];
+   SEED_SHIFTS = [
+     ['2026-08-01', '会社A', '09:00', '18:00', 1, 1200],
+     ['2026-08-02', '会社B', '10:00', '16:00', 0, 1500, 1000]
+   ];
    importSeedData();`,
   ctx
 );
@@ -81,6 +84,7 @@ const document = {
   createElement: (tag) => fakeElement(tag)
 };
 const errors = [];
+const serverCalls = [];
 const pageSandbox = {
   document,
   console,
@@ -93,14 +97,24 @@ const pageSandbox = {
   },
   google: {
     script: {
+      // 本物と同じく、withSuccessHandler などを繋いだあとに
+      // 任意のサーバー関数名を呼べるようにする（呼び出しは記録するだけ）
       run: (() => {
-        const runner = {
-          withSuccessHandler: () => runner,
-          withFailureHandler: () => runner
-        };
-        return new Proxy(runner, {
-          get: (target, prop) => (prop in target ? target[prop] : () => runner)
-        });
+        const proxy = new Proxy(
+          {},
+          {
+            get(_target, prop) {
+              if (prop === 'withSuccessHandler' || prop === 'withFailureHandler') {
+                return () => proxy;
+              }
+              return (...args) => {
+                serverCalls.push({ name: String(prop), args });
+                return proxy;
+              };
+            }
+          }
+        );
+        return proxy;
       })()
     }
   }
@@ -123,12 +137,16 @@ try {
   targetYear = 'DATA が読めない: ' + e.message;
 }
 check('画面: データを読み込めている', targetYear, 2026);
-check('画面: 「読み込み中」のままにならない', elements.updated && elements.updated.textContent.indexOf('2026-') === 0, true);
+const statusHtml = elements.updated ? elements.updated.innerHTML : '';
+check('画面: 初期の「読み込み中」から進む', statusHtml.indexOf('読み込み中') < 0, true);
+check('画面: 表示直後は同期中と分かる', statusHtml.indexOf('カレンダーを確認中') > 0, true);
 check('画面: 免責を表示する', elements.disclaimer && elements.disclaimer.textContent.indexOf('【免責】'), 0);
 
 const home = elements['view-home'] ? elements['view-home'].innerHTML : '';
-check('画面: ホームに年間収入を出す', home.indexOf('年間収入（額面）') > 0, true);
-check('画面: ホームに壁を出す', home.indexOf('123万円の壁') > 0 && home.indexOf('130万円の壁') > 0, true);
+check('画面: ホームに年間収入を出す', home.indexOf('年の収入（額面）') > 0, true);
+check('画面: ホームに壁までの残りを出す', home.indexOf('壁までの残り') > 0, true);
+check('画面: 壁を全部並べる', home.indexOf('123万円') > 0 && home.indexOf('130万円') > 0, true);
+check('画面: 手当を明細に出す', home.indexOf('手当') > 0, true);
 check('画面: ホームに当月の労働時間を出す', home.indexOf('今月') > 0, true);
 
 const income = elements['view-income'] ? elements['view-income'].innerHTML : '';
@@ -136,8 +154,13 @@ check('画面: 収入タブに合計所得金額を出す', income.indexOf('合�
 check('画面: 記号を含む収入元をそのまま壊さず表示', income.indexOf('&quot;引用符&quot;') > 0, true);
 
 const forecast = elements['view-forecast'] ? elements['view-forecast'].innerHTML : '';
-check('画面: 見込みタブに予定を出す', forecast.indexOf('この先') > 0, true);
-check('画面: 見込みタブにアドバイスを出す', forecast.indexOf('勤務調整のアドバイス') > 0, true);
+check('画面: 初回表示では見込みを読み込み中にする', forecast.indexOf('読み込んでいます') > 0, true);
+check('画面: 表示後にカレンダーの同期を呼ぶ', serverCalls.map((c) => c.name), ['appSyncCalendar']);
+
+// 同期後のデータでは見込みが埋まること（サーバー側の戻り値で確認）
+const synced = vm.runInContext('appSyncCalendar()', ctx);
+check('同期後: 見込みが利用可能になる', synced.forecast.available, true);
+check('同期後: アドバイスが入る', synced.forecast.advice.length > 0, true);
 
 const settings = elements['view-settings'] ? elements['view-settings'].innerHTML : '';
 check('画面: 設定タブに勤務先の上限を出す', settings.indexOf('会社A') > 0, true);
