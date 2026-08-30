@@ -11,9 +11,10 @@
 var RECONCILE_ALL = '合計（全勤務先）';
 
 function openReconcileDialog() {
+  var ui = requireUi_('月次の答え合わせを入力');
   ensureSheets_();
   var html = htmlOutput_('Reconcile').setWidth(460).setHeight(560);
-  SpreadsheetApp.getUi().showModalDialog(html, '月次の答え合わせ');
+  ui.showModalDialog(html, '月次の答え合わせ');
 }
 
 /** ダイアログ初期表示用のデータ */

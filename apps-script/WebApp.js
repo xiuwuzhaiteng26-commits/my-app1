@@ -332,8 +332,8 @@ function appSaveCompanyLimit(payload) {
 
 /** メニューからアプリのURLを表示する */
 function showWebAppUrl() {
+  var ui = requireUi_('③ アプリのURLを表示');
   var url = ScriptApp.getService().getUrl();
-  var ui = SpreadsheetApp.getUi();
   if (!url) {
     ui.alert('まだウェブアプリとして公開されていません。\n\nApps Script エディタの右上「デプロイ → 新しいデプロイ」→ 種類「ウェブアプリ」→\n実行するユーザー「自分」／アクセスできるユーザー「自分のみ」で公開してください。');
     return;

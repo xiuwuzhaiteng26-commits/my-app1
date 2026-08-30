@@ -109,8 +109,8 @@ function holidayMap_() {
   return readStoredHolidays_().map;
 }
 
-/** メニューから手動で取り込み直す */
-function refreshHolidaysFromMenu_() {
+/** メニューから手動で取り込み直す（末尾に _ を付けるとメニューから呼べなくなる） */
+function refreshHolidaysFromMenu() {
   invalidateHolidayCache_();
   var result = refreshHolidays_(new Date(), true);
   showAlert_(

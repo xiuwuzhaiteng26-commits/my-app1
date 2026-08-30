@@ -99,6 +99,9 @@ if (useBundle) {
 run('onOpen()');
 check('メニュー: 名前', menu.name, '年収の壁ツール');
 check('メニュー: 全項目に対応する関数がある', menu.items.filter((i) => run(`typeof ${i.fn}`) !== 'function'), []);
+// Apps Script はメニューやトリガーから「末尾が _ の関数」を呼べない
+check('メニュー: 末尾が _ の関数を割り当てていない', menu.items.filter((i) => /_$/.test(i.fn)), []);
+
 
 run('setupSheets()');
 const summaryAfterSetup = spreadsheet.getSheetByName('サマリー');
@@ -919,6 +922,39 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   apiCalls.reset();
   hRun('beginExecution_(); doGet()');
   check('祝日: 画面表示ではカレンダーを読まない', apiCalls.calendarFetch, 0);
+}
+
+/* --- 画面（ダイアログ）を出せない場所から実行されたとき --- */
+{
+  // Apps Script エディタの「実行」ボタンや時間主導トリガーからは
+  // SpreadsheetApp.getUi() が使えない。英文の例外ではなく案内を出すこと。
+  const uiEnv = makeSandbox({});
+  uiEnv.sandbox.SpreadsheetApp.getUi = () => {
+    throw new Error('Cannot call SpreadsheetApp.getUi() from this context.');
+  };
+  const uiCtx = vm.createContext(uiEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), uiCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), uiCtx, { filename: file });
+  }
+  const uiRun = (expr) => vm.runInContext(expr, uiCtx);
+
+  check('画面なし: Ui が使えないと分かる', uiRun('getUiOrNull_() === null'), true);
+
+  let message = '';
+  try {
+    uiRun('openReconcileDialog()');
+  } catch (e) {
+    message = e.message;
+  }
+  check('画面なし: 日本語で案内する', message.indexOf('スプレッドシートのメニュー') >= 0, true);
+  check('画面なし: どのメニュー項目かを示す', message.indexOf('月次の答え合わせを入力') >= 0, true);
+  check('画面なし: 英文の例外をそのまま出さない', message.indexOf('Cannot call') >= 0, false);
+
+  check('画面なし: メニューを作ろうとしても落ちない', uiRun('onOpen(); true'), true);
+  check('画面なし: 初期セットアップは最後まで通る', uiRun('setupSheets(); true'), true);
+  check('画面なし: 取り込みも通る', uiRun('runAnalysisForDate_(new Date(2026, 7, 20)); true'), true);
 }
 
 /* --- アプリの表示速度（Google API の往復回数） --- */

@@ -3,7 +3,13 @@
  */
 
 function onOpen() {
-  SpreadsheetApp.getUi()
+  var ui = getUiOrNull_();
+  // エディタの「実行」ボタンから呼ばれるとメニューは作れないが、落ちる必要はない
+  if (!ui) {
+    Logger.log('メニューはスプレッドシートを開いたときに作られます。');
+    return;
+  }
+  ui
     .createMenu('年収の壁ツール')
     .addItem('① 初期セットアップ（シート作成）', 'setupSheets')
     .addItem('② 毎日23:30のトリガーを設定', 'installDailyTrigger')
@@ -12,7 +18,7 @@ function onOpen() {
     .addItem('今日の分析をいま実行', 'runTodayFromMenu')
     .addItem('期間を指定して取り込み直す', 'backfillFromMenu')
     .addItem('サマリーだけ再計算', 'refreshSummaryFromMenu')
-    .addItem('祝日を取り込み直す', 'refreshHolidaysFromMenu_')
+    .addItem('祝日を取り込み直す', 'refreshHolidaysFromMenu')
     .addSeparator()
     .addItem('実データを取り込む（初回のみ）', 'importSeedData')
     .addSeparator()
@@ -219,7 +225,7 @@ function refreshSummaryFromMenu() {
 }
 
 function backfillFromMenu() {
-  var ui = SpreadsheetApp.getUi();
+  var ui = requireUi_('期間を指定して取り込み直す');
   var from = ui.prompt('期間の取り込み', '開始日を yyyy-MM-dd で入力してください', ui.ButtonSet.OK_CANCEL);
   if (from.getSelectedButton() !== ui.Button.OK) return;
   var to = ui.prompt('期間の取り込み', '終了日を yyyy-MM-dd で入力してください', ui.ButtonSet.OK_CANCEL);
@@ -247,7 +253,7 @@ function backfillFromMenu() {
 }
 
 function addManualIncomeFromMenu() {
-  var ui = SpreadsheetApp.getUi();
+  var ui = requireUi_('手入力の収入を追加');
   var name = promptText_(ui, '手入力の収入', '収入元の名前（例: 〇〇業務委託）');
   if (name === null) return;
   var category = promptText_(
@@ -292,7 +298,8 @@ function addManualIncomeFromMenu() {
 
 function runTestsFromMenu() {
   var result = runTests();
-  SpreadsheetApp.getUi().alert(result.summary + '\n\n' + result.details.join('\n'));
+  // エディタから実行されたときは、ログに出しておけば結果は確認できる
+  showAlert_(result.summary, result.details.join('\n'));
 }
 
 /* ------------------------- 小物 ------------------------- */
@@ -321,6 +328,34 @@ function toast_(message) {
   } catch (e) {
     Logger.log(message);
   }
+}
+
+/**
+ * 画面（ダイアログ）を出せる状態なら Ui を返し、出せないなら null を返す。
+ *
+ * Apps Script エディタの「実行」ボタンや、時間主導のトリガー、ウェブアプリからは
+ * SpreadsheetApp.getUi() が使えず「Cannot call SpreadsheetApp.getUi() from this
+ * context.」で落ちる。メニュー専用の処理はこれで先に確かめて、
+ * 落ちる代わりに「スプレッドシートのメニューから実行してください」と伝える。
+ */
+function getUiOrNull_() {
+  try {
+    return SpreadsheetApp.getUi();
+  } catch (e) {
+    return null;
+  }
+}
+
+/** メニュー専用の処理を、エディタから実行してしまったときの案内 */
+function requireUi_(menuItemName) {
+  var ui = getUiOrNull_();
+  if (ui) return ui;
+  var message =
+    '「' + menuItemName + '」は入力画面を開くため、スプレッドシートのメニューからしか実行できません。\n\n' +
+    'スプレッドシートを開き、上部メニューの「年収の壁ツール」→「' + menuItemName + '」を選んでください。\n' +
+    '（Apps Script エディタの「実行」ボタンからは動きません）';
+  Logger.log(message);
+  throw new Error(message);
 }
 
 function showAlert_(title, message) {
