@@ -68,7 +68,9 @@ const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m
 check('画面: scriptブロックが2つある', scripts.length, 2);
 
 const elements = {};
+const played = [];
 function fakeElement(id) {
+  const classes = new Set();
   return {
     id,
     textContent: '',
@@ -77,14 +79,32 @@ function fakeElement(id) {
     checked: false,
     disabled: false,
     className: '',
+    currentTime: 0,
     style: {},
     dataset: {},
-    addEventListener() {},
+    listeners: {},
+    addEventListener(type, handler) {
+      (this.listeners[type] = this.listeners[type] || []).push(handler);
+    },
+    /** テストから発火させる */
+    fire(type, event) {
+      (this.listeners[type] || []).forEach((h) => h.call(this, event || { stopPropagation() {} }));
+    },
+    play() {
+      played.push(this.id);
+      return { catch() {} };
+    },
     getAttribute: () => null,
     appendChild() {},
-    classList: { toggle() {}, add() {}, remove() {} }
+    classList: {
+      toggle(name, on) { if (on === false) classes.delete(name); else classes.add(name); },
+      add(name) { classes.add(name); },
+      remove(name) { classes.delete(name); },
+      contains: (name) => classes.has(name)
+    }
   };
 }
+const storage = {};
 const document = {
   getElementById(id) {
     if (!elements[id]) elements[id] = fakeElement(id);
@@ -100,6 +120,15 @@ const pageSandbox = {
   console,
   setTimeout,
   clearTimeout,
+  localStorage: {
+    getItem: (k) => (k in storage ? storage[k] : null),
+    setItem: (k, v) => {
+      storage[k] = String(v);
+    },
+    removeItem: (k) => {
+      delete storage[k];
+    }
+  },
   window: {
     addEventListener(type, handler) {
       if (type === 'error') pageSandbox.__onerror = handler;
@@ -175,6 +204,42 @@ check('同期後: アドバイスが入る', synced.forecast.advice.length > 0, 
 
 const settings = elements['view-settings'] ? elements['view-settings'].innerHTML : '';
 check('画面: 設定タブに勤務先の上限を出す', settings.indexOf('会社A') > 0, true);
+check('画面: 設定タブに給与サイクルを出す', settings.indexOf('給与サイクル') > 0, true);
+check('画面: 締め日と支給日を読める形で出す', settings.indexOf('締め') > 0 && settings.indexOf('払い') > 0, true);
+
+/* ---- 起動画面（エンジン音） ---- */
+check('起動画面: 音のデータが埋め込まれている', html.indexOf('src="data:audio/mpeg;base64,') > 0, true);
+check('起動画面: スタートボタンがある', html.indexOf('id="starter"') > 0, true);
+const ignition = document.getElementById('ignition');
+check('起動画面: 起動前は隠れていない', ignition.classList.contains('gone'), false);
+
+const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+elements.starter.fire('click');
+check('起動画面: 押すとエンジン音が鳴る', played, ['engine']);
+check('起動画面: 押すとセルが回る見た目になる', elements.starter.classList.contains('cranking'), true);
+await settle(1000);
+check('起動画面: 音が鳴りだしてからアプリに入る', ignition.classList.contains('gone'), true);
+
+// 音を消す設定は次回に引き継がれる
+played.length = 0;
+elements['mute-toggle'].fire('click');
+check('起動画面: 音を消す設定を覚える', storage.engineSound, 'off');
+check('起動画面: ボタンの文字が変わる', elements['mute-toggle'].textContent, '音を出す');
+elements.starter.fire('click');
+check('起動画面: 音を消していれば鳴らさない', played, []);
+
+/* ---- 振込予定・月ごとの見込み ---- */
+check('画面: 収入タブに振込予定を出す', income.indexOf('振込予定') > 0, true);
+check('画面: 支給日を曜日つきで出す', /\d+月\d+日（[日月火水木金土]）/.test(income), true);
+check('画面: 締め期間を出す', income.indexOf('の分') > 0, true);
+
+// 同期後の見込みは、月ごとに分かれて表示される
+pageSandbox.__synced = synced;
+vm.runInContext('DATA = __synced; render();', pageCtx);
+const forecast2 = elements['view-forecast'] ? elements['view-forecast'].innerHTML : '';
+check('画面: 見込みを月ごとに分ける', /\d{4}年\d+月/.test(forecast2), true);
+check('画面: 月ごとの合計時間を出す', forecast2.indexOf('合計 ') > 0, true);
 
 console.log(details.join('\n'));
 const summary = failed === 0 ? `画面テスト: 全${details.length}件成功` : `画面テスト: ${failed}件失敗 / 全${details.length}件`;

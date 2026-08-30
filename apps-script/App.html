@@ -3,52 +3,48 @@
   <head>
     <base target="_top" />
     <style>
+      /*
+        アメリカンバイクのモチーフ。
+        ガレージの暗さ（マットブラック〜ガンメタル）に、
+        タンクのオレンジとメッキのクローム、計器の琥珀色を乗せている。
+        端末のライト/ダーク設定にかかわらず、この一枚の見た目で通す。
+      */
       :root {
-        --bg: #f2f4f7;
-        --card: #ffffff;
-        --line: #e6e9ee;
-        --line-soft: #f0f2f5;
-        --text: #16191d;
-        --muted: #6b7280;
-        --faint: #9aa1ab;
-        --accent: #2563eb;
-        --accent-soft: #eff4ff;
-        --ok: #15803d;
-        --warn: #c2620a;
-        --alert: #c02626;
-        --ok-bg: #e9f7ee;
-        --warn-bg: #fdf3e4;
-        --alert-bg: #fdecea;
-        --ok-bar: #22a35a;
-        --warn-bar: #ec9013;
-        --alert-bar: #e0453b;
-        --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 4px 14px rgba(16, 24, 40, 0.06);
-        --shadow-lg: 0 2px 6px rgba(16, 24, 40, 0.07), 0 12px 32px rgba(16, 24, 40, 0.1);
-        --radius: 18px;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #0f1216;
-          --card: #191d23;
-          --line: #2a3038;
-          --line-soft: #23282f;
-          --text: #e9edf2;
-          --muted: #9aa3ae;
-          --faint: #6f7883;
-          --accent: #6ea0ff;
-          --accent-soft: #1a2436;
-          --ok: #6ee7a0;
-          --warn: #fbbf4a;
-          --alert: #ff8f85;
-          --ok-bg: #16281d;
-          --warn-bg: #2e2617;
-          --alert-bg: #2f1d1c;
-          --ok-bar: #34c777;
-          --warn-bar: #eda23a;
-          --alert-bar: #f2695e;
-          --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-          --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
-        }
+        color-scheme: dark;
+        --bg: #0b0b0d;
+        --bg-2: #121317;
+        --card: #17181c;
+        --card-2: #1e2026;
+        --line: #2c2f36;
+        --line-soft: #232529;
+        --text: #f1ece4;
+        --muted: #9a958c;
+        --faint: #6f6a63;
+
+        /* タンクのオレンジ */
+        --accent: #f0821e;
+        --accent-2: #c2410c;
+        --accent-soft: #2a1c10;
+        /* メッキ */
+        --chrome-1: #f6f7f8;
+        --chrome-2: #b9bec6;
+        --chrome-3: #7d838c;
+        --chrome-4: #4a4f57;
+
+        --ok: #7fd18f;
+        --warn: #f5b13c;
+        --alert: #f2695e;
+        --ok-bg: #16241a;
+        --warn-bg: #2b2113;
+        --alert-bg: #2c1917;
+        --ok-bar: #4caf6a;
+        --warn-bar: #e79a2a;
+        --alert-bar: #e2503f;
+
+        --shadow: 0 1px 2px rgba(0, 0, 0, .6), 0 6px 18px rgba(0, 0, 0, .45);
+        --shadow-lg: 0 2px 8px rgba(0, 0, 0, .6), 0 18px 44px rgba(0, 0, 0, .6);
+        --radius: 16px;
+        --chrome: linear-gradient(180deg, var(--chrome-1) 0%, var(--chrome-2) 42%, var(--chrome-4) 52%, var(--chrome-3) 68%, var(--chrome-1) 100%);
       }
 
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -56,7 +52,10 @@
       body {
         margin: 0;
         padding: 0 0 calc(76px + env(safe-area-inset-bottom));
-        background: var(--bg);
+        background:
+          radial-gradient(1100px 520px at 50% -180px, #1d1f25 0%, transparent 70%),
+          var(--bg);
+        background-attachment: fixed;
         color: var(--text);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans',
           'Noto Sans JP', 'Yu Gothic', sans-serif;
@@ -69,15 +68,32 @@
       /* ---------- ヘッダー ---------- */
       header {
         position: sticky; top: 0; z-index: 30;
-        background: color-mix(in srgb, var(--card) 88%, transparent);
-        backdrop-filter: saturate(1.6) blur(14px);
-        -webkit-backdrop-filter: saturate(1.6) blur(14px);
-        border-bottom: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(24,25,29,.96) 0%, rgba(16,17,20,.92) 100%);
+        backdrop-filter: saturate(1.4) blur(14px);
+        -webkit-backdrop-filter: saturate(1.4) blur(14px);
+        border-bottom: 1px solid #000;
+        box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 6px 18px rgba(0,0,0,.5);
         padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
         display: flex; align-items: center; gap: 12px;
       }
+      /* タンクのピンストライプ */
+      header::after {
+        content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px;
+        background: linear-gradient(90deg, transparent, var(--accent) 18%, var(--chrome-2) 50%, var(--accent) 82%, transparent);
+        opacity: .75;
+      }
       header .brand { flex: 1; min-width: 0; }
-      header h1 { font-size: 16px; margin: 0; letter-spacing: .01em; font-weight: 700; }
+      header h1 {
+        font-size: 15px; margin: 0; font-weight: 800;
+        letter-spacing: .16em; text-transform: uppercase;
+        background: var(--chrome); -webkit-background-clip: text; background-clip: text;
+        color: transparent; -webkit-text-fill-color: transparent;
+      }
+      header h1 .jp {
+        display: block; font-size: 11px; letter-spacing: .06em; font-weight: 600;
+        text-transform: none; color: var(--muted);
+        -webkit-text-fill-color: var(--muted);
+      }
       header .updated {
         display: flex; align-items: center; gap: 5px;
         font-size: 11px; color: var(--faint); font-weight: 400; margin-top: 1px;
@@ -92,9 +108,11 @@
       }
       @keyframes spin { to { transform: rotate(360deg); } }
       .icon-btn {
-        border: 1px solid var(--line); background: var(--card); color: var(--text);
-        border-radius: 999px; padding: 7px 15px; font-size: 13px; font-weight: 600;
-        cursor: pointer; flex: 0 0 auto; font-family: inherit;
+        border: 1px solid var(--chrome-4); color: var(--chrome-1);
+        background: linear-gradient(180deg, #33363d, #1c1e22);
+        border-radius: 999px; padding: 7px 15px; font-size: 12.5px; font-weight: 700;
+        letter-spacing: .04em; cursor: pointer; flex: 0 0 auto; font-family: inherit;
+        box-shadow: 0 1px 0 rgba(255,255,255,.14) inset;
       }
       .icon-btn:active { transform: scale(.96); }
 
@@ -105,31 +123,48 @@
 
       /* ---------- カード ---------- */
       .card {
-        background: var(--card);
+        background: linear-gradient(180deg, var(--card-2) 0%, var(--card) 100%);
+        border: 1px solid var(--line);
         border-radius: var(--radius);
         padding: 16px;
         margin-bottom: 12px;
-        box-shadow: var(--shadow);
+        box-shadow: var(--shadow), 0 1px 0 rgba(255,255,255,.05) inset;
       }
+      /* 見出しは小さなクロームの銘板ふうに */
       .card > h2 {
-        font-size: 11px; color: var(--faint); margin: 0 0 12px;
-        font-weight: 700; letter-spacing: .08em; text-transform: none;
+        font-size: 10.5px; color: var(--muted); margin: 0 0 12px;
+        font-weight: 800; letter-spacing: .14em;
+        display: flex; align-items: center; gap: 9px;
+      }
+      .card > h2::after {
+        content: ''; flex: 1; height: 1px;
+        background: linear-gradient(90deg, var(--line), transparent);
       }
       .card h3 { font-size: 15px; margin: 0; font-weight: 650; }
 
       /* ---------- ヒーロー ---------- */
+      /* 燃料タンクを思わせるカード。上に光沢、縁にクロームのライン */
       .hero {
-        background: linear-gradient(160deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 72%, #7c3aed) 100%);
-        color: #fff; border-radius: var(--radius); padding: 20px 18px;
+        position: relative; overflow: hidden;
+        background:
+          radial-gradient(120% 90% at 50% -30%, rgba(255,255,255,.22) 0%, transparent 58%),
+          linear-gradient(165deg, var(--accent) 0%, var(--accent-2) 68%, #7c2a08 100%);
+        color: #fff2e4;
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 22px; padding: 20px 18px;
         margin-bottom: 12px; box-shadow: var(--shadow-lg);
+      }
+      .hero::after {
+        content: ''; position: absolute; left: 14px; right: 14px; bottom: 0; height: 2px;
+        background: var(--chrome); opacity: .55; border-radius: 2px;
       }
       .hero .label { font-size: 12px; opacity: .82; font-weight: 600; letter-spacing: .04em; }
       .hero .amount { font-size: 34px; font-weight: 800; letter-spacing: -.025em; line-height: 1.15; margin-top: 2px; }
       .hero .sub { font-size: 12px; opacity: .82; margin-top: 3px; }
       .hero .split { display: flex; gap: 10px; margin-top: 16px; }
       .hero .chip {
-        flex: 1; background: rgba(255,255,255,.16); border-radius: 12px;
-        padding: 9px 11px; min-width: 0;
+        flex: 1; background: rgba(0,0,0,.24); border: 1px solid rgba(255,255,255,.14);
+        border-radius: 12px; padding: 9px 11px; min-width: 0;
       }
       .hero .chip .k { font-size: 10.5px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .hero .chip .v { font-size: 15px; font-weight: 700; margin-top: 1px; }
@@ -161,19 +196,53 @@
       .s-情報, .s-INFO { color: var(--muted); background: var(--line-soft); }
 
       /* ---------- バー ---------- */
-      .bar { height: 9px; border-radius: 999px; background: var(--line-soft); overflow: hidden; margin: 11px 0 7px; }
-      .bar > i { display: block; height: 100%; border-radius: 999px; transition: width .5s cubic-bezier(.2,.8,.2,1); }
-      .f-正常 { background: linear-gradient(90deg, var(--ok-bar), color-mix(in srgb, var(--ok-bar) 70%, #7ee0a8)); }
-      .f-注意 { background: linear-gradient(90deg, var(--warn-bar), color-mix(in srgb, var(--warn-bar) 70%, #ffd08a)); }
-      .f-警告 { background: linear-gradient(90deg, var(--alert-bar), color-mix(in srgb, var(--alert-bar) 70%, #ff9d95)); }
+      /* 計器の目盛りを敷いた進捗バー（タコメーターのイメージ） */
+      .bar {
+        position: relative; height: 11px; border-radius: 3px; overflow: hidden;
+        margin: 11px 0 7px;
+        background: #0a0a0c;
+        border: 1px solid #000;
+        box-shadow: 0 1px 0 rgba(255,255,255,.06), inset 0 2px 5px rgba(0,0,0,.9);
+      }
+      .bar::after {
+        content: ''; position: absolute; inset: 0; pointer-events: none;
+        background: repeating-linear-gradient(90deg, rgba(255,255,255,.16) 0 1px, transparent 1px 10%);
+      }
+      .bar > i {
+        display: block; height: 100%; border-radius: 2px;
+        transition: width .6s cubic-bezier(.2,.8,.2,1);
+        box-shadow: 0 0 10px currentColor;
+      }
+      .f-正常 { color: var(--ok-bar); background: linear-gradient(90deg, #2f7a45, var(--ok-bar)); }
+      .f-注意 { color: var(--warn-bar); background: linear-gradient(90deg, #a86a12, var(--warn-bar)); }
+      .f-警告 { color: var(--alert-bar); background: linear-gradient(90deg, #97281c, var(--alert-bar)); }
 
       /* ---------- 壁カード ---------- */
       .wall + .wall { margin-top: 6px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
       .wall .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .wall .name { font-size: 14px; font-weight: 700; }
-      .wall .rest { font-size: 23px; font-weight: 780; letter-spacing: -.02em; margin-top: 5px; }
+      .wall .rest {
+        font-size: 25px; font-weight: 800; letter-spacing: -.02em; margin-top: 5px;
+        font-variant-numeric: tabular-nums;
+      }
       .wall .rest.neg { color: var(--alert); }
       .wall .meta { display: flex; justify-content: space-between; }
+
+      /* ---------- 月ごとの見出し ---------- */
+      .month-head {
+        display: flex; align-items: center; gap: 10px;
+        padding: 7px 12px; margin-bottom: 12px; border-radius: 8px;
+        background: linear-gradient(180deg, #2b2e35, #1b1d21);
+        border: 1px solid var(--line);
+        box-shadow: 0 1px 0 rgba(255,255,255,.07) inset;
+      }
+      .month-head .month-name {
+        font-size: 14px; font-weight: 800; letter-spacing: .04em;
+        background: var(--chrome); -webkit-background-clip: text; background-clip: text;
+        color: transparent; -webkit-text-fill-color: transparent;
+      }
+      .month-head .sub { flex: 1; }
+      .month-row + .month-row { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line-soft); }
 
       /* ---------- 一覧 ---------- */
       ul.list { list-style: none; margin: 0; padding: 0; }
@@ -192,7 +261,7 @@
       label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 5px; font-weight: 600; }
       input, select, textarea {
         width: 100%; padding: 11px 13px; font-size: 16px; color: var(--text);
-        background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+        background: #0d0e11; border: 1px solid var(--line); border-radius: 10px;
         font-family: inherit; appearance: none;
       }
       input:focus, select:focus, textarea:focus {
@@ -201,9 +270,12 @@
       }
       select { background-image: none; }
       button.primary {
-        width: 100%; margin-top: 16px; padding: 13px; font-size: 15px; font-weight: 700;
-        border: 0; border-radius: 12px; background: var(--accent); color: #fff;
-        cursor: pointer; font-family: inherit;
+        width: 100%; margin-top: 16px; padding: 13px; font-size: 15px; font-weight: 800;
+        letter-spacing: .06em;
+        border: 1px solid rgba(255,255,255,.16); border-radius: 10px;
+        background: linear-gradient(180deg, var(--accent), var(--accent-2));
+        color: #fff6ee; cursor: pointer; font-family: inherit;
+        box-shadow: 0 1px 0 rgba(255,255,255,.22) inset, 0 6px 16px rgba(0,0,0,.5);
       }
       button.primary:active { transform: scale(.99); }
       button.primary:disabled { opacity: .5; }
@@ -219,18 +291,92 @@
       a { color: var(--accent); text-decoration: none; font-weight: 600; }
 
       .estimate {
-        background: var(--accent-soft); border-radius: 13px; padding: 13px 15px; margin-top: 14px;
+        background: var(--accent-soft); border: 1px solid rgba(240,130,30,.28);
+        border-radius: 11px; padding: 13px 15px; margin-top: 14px;
       }
       .estimate .k { font-size: 11.5px; color: var(--muted); font-weight: 600; }
       .estimate .v { font-size: 25px; font-weight: 780; letter-spacing: -.02em; margin-top: 1px; }
 
+      /* ---------- 起動画面（イグニッション） ---------- */
+      #ignition {
+        position: fixed; inset: 0; z-index: 90;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 26px; padding: 32px;
+        background:
+          radial-gradient(720px 460px at 50% 38%, #1e2027 0%, #0a0a0c 68%),
+          #08080a;
+        transition: opacity .55s ease, visibility .55s;
+      }
+      #ignition.gone { opacity: 0; visibility: hidden; pointer-events: none; }
+
+      #ignition .mark {
+        text-align: center;
+        font-weight: 900; letter-spacing: .3em; font-size: 13px; text-transform: uppercase;
+        background: var(--chrome); -webkit-background-clip: text; background-clip: text;
+        color: transparent; -webkit-text-fill-color: transparent;
+      }
+      #ignition .mark small {
+        display: block; margin-top: 8px;
+        font-size: 19px; letter-spacing: .1em; font-weight: 800;
+        -webkit-text-fill-color: transparent;
+      }
+      #ignition .mark .jp {
+        display: block; margin-top: 10px; font-size: 12px; letter-spacing: .08em;
+        font-weight: 600; color: var(--muted); -webkit-text-fill-color: var(--muted);
+        text-transform: none;
+      }
+
+      /* セルスターターのボタン */
+      #starter {
+        position: relative; width: 172px; height: 172px; border-radius: 50%;
+        border: 0; padding: 0; cursor: pointer; font-family: inherit;
+        background: var(--chrome);
+        box-shadow: 0 18px 40px rgba(0,0,0,.7), 0 0 0 1px #000;
+        display: grid; place-items: center;
+        transition: transform .12s ease;
+      }
+      #starter::before {
+        content: ''; position: absolute; inset: 9px; border-radius: 50%;
+        background: radial-gradient(circle at 50% 32%, #3a3d45 0%, #17181c 62%, #0c0d10 100%);
+        box-shadow: inset 0 2px 6px rgba(255,255,255,.14), inset 0 -8px 18px rgba(0,0,0,.85);
+      }
+      #starter .face {
+        position: relative; text-align: center; line-height: 1.25;
+        color: var(--accent); text-shadow: 0 0 16px rgba(240,130,30,.5);
+      }
+      #starter .face .en { display: block; font-size: 25px; font-weight: 900; letter-spacing: .16em; }
+      #starter .face .jp { display: block; font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .1em; margin-top: 4px; text-shadow: none; }
+      #starter:active { transform: scale(.96); }
+      #starter.cranking { animation: shake .09s linear infinite; }
+      #starter.cranking .face .en { animation: flicker .12s linear infinite; }
+      @keyframes shake {
+        0% { transform: translate(0, 0); }
+        25% { transform: translate(1px, -1px); }
+        50% { transform: translate(-1px, 1px); }
+        75% { transform: translate(-1px, -1px); }
+        100% { transform: translate(1px, 1px); }
+      }
+      @keyframes flicker { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+
+      #ignition .hint { font-size: 12px; color: var(--faint); text-align: center; max-width: 300px; line-height: 1.7; }
+      #ignition .mute {
+        border: 1px solid var(--chrome-4); color: var(--chrome-2); background: transparent;
+        border-radius: 999px; padding: 8px 18px; font-size: 12px; font-weight: 700;
+        cursor: pointer; font-family: inherit;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #starter.cranking, #starter.cranking .face .en { animation: none; }
+      }
+
       /* ---------- ナビ ---------- */
       nav {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-        display: flex; background: color-mix(in srgb, var(--card) 92%, transparent);
-        backdrop-filter: saturate(1.6) blur(14px);
-        -webkit-backdrop-filter: saturate(1.6) blur(14px);
-        border-top: 1px solid var(--line);
+        display: flex;
+        background: linear-gradient(180deg, rgba(26,27,32,.96), rgba(12,13,16,.98));
+        backdrop-filter: saturate(1.4) blur(14px);
+        -webkit-backdrop-filter: saturate(1.4) blur(14px);
+        border-top: 1px solid #000;
+        box-shadow: 0 -1px 0 rgba(255,255,255,.07) inset, 0 -8px 24px rgba(0,0,0,.55);
         padding-bottom: env(safe-area-inset-bottom);
       }
       nav button {
@@ -239,14 +385,15 @@
         font-weight: 650; position: relative; transition: color .18s;
       }
       nav button .ico { display: block; font-size: 19px; line-height: 1.35; filter: grayscale(1); opacity: .55; transition: all .18s; }
-      nav button.active { color: var(--accent); }
+      nav button.active { color: var(--accent); text-shadow: 0 0 12px rgba(240,130,30,.45); }
       nav button.active .ico { filter: none; opacity: 1; transform: translateY(-1px); }
 
       /* ---------- 通知など ---------- */
       #toast {
         position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));
         transform: translateX(-50%) translateY(10px);
-        background: #1f2328; color: #fff; padding: 12px 18px; border-radius: 13px;
+        background: #23252b; color: var(--text); border: 1px solid var(--line);
+        padding: 12px 18px; border-radius: 11px;
         font-size: 13px; max-width: 88%; z-index: 60; box-shadow: var(--shadow-lg);
         opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
       }
@@ -274,9 +421,23 @@
     </style>
   </head>
   <body>
+    <div id="ignition">
+      <div class="mark">
+        Income Wall
+        <small>Garage Ledger</small>
+        <span class="jp">年収の壁・労働時間管理</span>
+      </div>
+      <button id="starter" type="button" aria-label="エンジンを始動してアプリを開く">
+        <span class="face"><span class="en">START</span><span class="jp">押して始動</span></span>
+      </button>
+      <div class="hint" id="ignition-hint">ボタンを押すとエンジン音が鳴ります。<br />音を出したくないときは下から消せます。</div>
+      <button class="mute" id="mute-toggle" type="button">音を消す</button>
+      <audio id="engine" preload="auto" src="<?!= engineSound ?>"></audio>
+    </div>
+
     <header>
       <div class="brand">
-        <h1>年収の壁</h1>
+        <h1>Income Wall<span class="jp">年収の壁・労働時間管理</span></h1>
         <span class="updated" id="updated"><span class="spin"></span>読み込み中</span>
       </div>
       <button class="icon-btn" id="reload">更新</button>
@@ -335,6 +496,17 @@
         return sign + Math.abs(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円';
       }
       function pct(r) { return Math.round((Number(r) || 0) * 100) + '%'; }
+      function cutoffLabel(day) {
+        return Number(day) >= 31 ? '月末' : Number(day) + '日';
+      }
+      function payDayLabel(offset, day) {
+        var when = Number(offset) === 0 ? '当月' : Number(offset) === 1 ? '翌月' : '翌々月';
+        return when + (Number(day) >= 31 ? '末' : Number(day) + '日');
+      }
+      function monthLabel(ym) {
+        var m = String(ym || '').match(/^(\d{4})-(\d{2})$/);
+        return m ? Number(m[1]) + '年' + Number(m[2]) + '月' : String(ym || '');
+      }
       function clamp(r) { return Math.max(0, Math.min(100, Math.round((Number(r) || 0) * 100))); }
       function el(id) { return document.getElementById(id); }
 
@@ -494,6 +666,59 @@
       }
 
       /* ---------- 収入 ---------- */
+      /** 支給日ごとの振込予定。会社ごとに締め日と支給日が違うのでここでまとめて見せる */
+      function paymentsHtml() {
+        var list = DATA.payments || [];
+        if (!list.length) return '<div class="empty">まだ振込予定がありません</div>';
+
+        // 同じ支給日に複数社から振り込まれることがあるので、日付でまとめる
+        var byDate = {};
+        var order = [];
+        list.forEach(function (p) {
+          if (!byDate[p.payDate]) { byDate[p.payDate] = []; order.push(p.payDate); }
+          byDate[p.payDate].push(p);
+        });
+        order.sort();
+
+        var html = '';
+        order.forEach(function (date, i) {
+          var group = byDate[date];
+          var total = 0;
+          var paid = true;
+          group.forEach(function (p) { total += p.amount; if (!p.isPaid) paid = false; });
+
+          html +=
+            '<div class="' + (i ? 'block' : '') + '">' +
+            '<div class="row"><span><b>' + esc(formatPayDate(date)) + '</b>' +
+            (paid ? ' <span class="badge s-OK">入金済</span>' : ' <span class="badge s-INFO">予定</span>') +
+            '</span><span class="v strong">' + yen(total) + '</span></div>';
+
+          group.forEach(function (p) {
+            html +=
+              '<div class="sub" style="margin-top:4px">' + esc(p.companyName) + '　' +
+              esc(shortRange(p.periodFrom, p.periodTo)) + ' の分　' +
+              p.days + '日 / ' + p.hours + '時間　' + yen(p.amount) +
+              (p.confirmed ? '' : '　<span class="badge s-注意">サイクル暫定</span>') +
+              (p.moved ? '<br />　本来は ' + esc(formatPayDate(p.scheduledDate)) + '（休日のため前後にずれています）' : '') +
+              '</div>';
+          });
+          html += '</div>';
+        });
+        return html;
+      }
+
+      function formatPayDate(dateStr) {
+        var m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m) return String(dateStr || '');
+        var week = ['日', '月', '火', '水', '木', '金', '土'];
+        var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        return Number(m[2]) + '月' + Number(m[3]) + '日（' + week[d.getDay()] + '）';
+      }
+
+      function shortRange(from, to) {
+        return String(from || '').slice(5).replace('-', '/') + '〜' + String(to || '').slice(5).replace('-', '/');
+      }
+
       function renderIncome() {
         var a = DATA.annual;
         var html = '';
@@ -505,8 +730,17 @@
             row('給与収入（手入力）', yen(a.manualSalaryRevenue)) +
             row('事業収入', yen(a.businessRevenue)) +
             row('雑収入', yen(a.miscRevenue)) +
-            totalRow('合計（壁の判定に使用）', yen(a.totalRevenue))
+            totalRow('合計（壁の判定に使用）', yen(a.totalRevenue)) +
+            (a.byPayDate
+              ? '<div class="sub" style="margin-top:10px">' +
+                '給与は「振り込まれた日」が属する年の収入として数えています（税法上の扱い）。' +
+                (a.carriedInRevenue ? '<br />前年に働いて今年振り込まれた分: ' + yen(a.carriedInRevenue) : '') +
+                (a.carriedOutRevenue ? '<br />今年働いて来年振り込まれる分: ' + yen(a.carriedOutRevenue) + '（今年には数えていません）' : '') +
+                '</div>'
+              : '')
         );
+
+        html += card('振込予定（支給日ごと）', paymentsHtml());
 
         html += card(
           '合計所得金額　※収入額とは別の数値',
@@ -598,21 +832,46 @@
         }
         html += card('勤務調整のアドバイス', adviceHtml);
 
+        // 月ごとにまとめる。8月と9月の予定が同じ並びに混ざると読み取れないため
         var monthsHtml = '';
         if (!(f.months || []).length) {
           monthsHtml = '<div class="empty">この先の勤務予定はありません</div>';
         } else {
-          f.months.forEach(function (m, i) {
+          var byMonth = {};
+          var monthOrder = [];
+          f.months.forEach(function (m) {
+            if (!byMonth[m.yearMonth]) { byMonth[m.yearMonth] = []; monthOrder.push(m.yearMonth); }
+            byMonth[m.yearMonth].push(m);
+          });
+          monthOrder.sort();
+
+          monthOrder.forEach(function (ym, mi) {
+            var rows = byMonth[ym];
+            var monthHours = 0;
+            var worst = '正常';
+            rows.forEach(function (m) {
+              monthHours = Math.round((monthHours + m.projectedHours) * 100) / 100;
+              if (m.status === '警告') worst = '警告';
+              else if (m.status === '注意' && worst === '正常') worst = '注意';
+            });
+
             monthsHtml +=
-              '<div class="' + (i ? 'block' : '') + '">' +
-              '<div class="head" style="display:flex;justify-content:space-between;align-items:center">' +
-              '<h3>' + esc(m.companyName) + ' <span class="sub">' + esc(m.yearMonth) + '</span></h3>' +
-              badge(m.status) + '</div>' +
-              bar(m.ratio, m.status) +
-              '<div class="row"><span class="sub">実績 ' + m.actualHours + 'h ＋ 予定 ' + m.plannedHours +
-              'h ＝ <b>' + m.projectedHours + 'h</b> / ' + m.limit + 'h</span>' +
-              '<span class="sub">' + (m.overHours > 0 ? m.overHours + 'h 超過' : '余裕 ' + m.remainingHours + 'h') +
-              '</span></div></div>';
+              '<div class="' + (mi ? 'block' : '') + '">' +
+              '<div class="month-head"><span class="month-name">' + esc(monthLabel(ym)) + '</span>' +
+              '<span class="sub">合計 ' + monthHours + 'h</span>' + badge(worst) + '</div>';
+
+            rows.forEach(function (m) {
+              monthsHtml +=
+                '<div class="month-row">' +
+                '<div class="head" style="display:flex;justify-content:space-between;align-items:center">' +
+                '<h3>' + esc(m.companyName) + '</h3>' + badge(m.status) + '</div>' +
+                bar(m.ratio, m.status) +
+                '<div class="row"><span class="sub">実績 ' + m.actualHours + 'h ＋ 予定 ' + m.plannedHours +
+                'h ＝ <b>' + m.projectedHours + 'h</b> / ' + m.limit + 'h</span>' +
+                '<span class="sub">' + (m.overHours > 0 ? m.overHours + 'h 超過' : '余裕 ' + m.remainingHours + 'h') +
+                '</span></div></div>';
+            });
+            monthsHtml += '</div>';
           });
         }
         html += card('月間労働時間の見込み', monthsHtml);
@@ -735,6 +994,30 @@
             '連続月数は「月◯時間以上が◯ヶ月連続で対象」と言われた場合のみ変更します（通常は1）。</div>' + limitsHtml
         );
 
+        var cycleHtml = '';
+        if (!(DATA.payCycles || []).length) {
+          cycleHtml = '<div class="empty">勤務先はカレンダーの取り込み時に自動登録されます</div>';
+        } else {
+          cycleHtml = '<ul class="list">';
+          DATA.payCycles.forEach(function (c) {
+            cycleHtml +=
+              '<li><div class="row"><span><b>' + esc(c.companyName) + '</b></span>' +
+              '<span class="badge s-' + (c.confirmed ? '正常">確定' : '注意">暫定') + '</span></div>' +
+              '<div class="sub">' + esc(cutoffLabel(c.cutoffDay)) + '締め　' +
+              esc(payDayLabel(c.payMonthOffset, c.payDay)) + '払い　' +
+              '休日は' + esc(c.shiftRule || 'そのまま') + (c.shiftOnHoliday ? '（祝日も）' : '（土日のみ）') +
+              (c.note ? '<br />' + esc(c.note) : '') + '</div></li>';
+          });
+          cycleHtml += '</ul>';
+        }
+        html += card(
+          '給与サイクル（締め日と支給日）',
+          '<div class="sub" style="margin-bottom:14px">年収の壁は「振り込まれた日」が属する年で判定します。' +
+            '会社に確認できたら、スプレッドシートの「給与サイクル」タブで直してください。' +
+            (DATA.holidaysAvailable ? '' : '<br />※祝日をまだ取り込めていないため、いまは土日だけで判定しています。') +
+            '</div>' + cycleHtml
+        );
+
         html += card(
           'カレンダーの取り込み',
           '<div class="sub">アプリを開くたびに直近1ヶ月分を自動で取り込みます。毎晩23:30にも実行されます。</div>' +
@@ -830,8 +1113,63 @@
 
       el('reload').addEventListener('click', function () { syncCalendar(true); });
 
+      /* ---------- 起動画面（イグニッション） ---------- */
+      // ブラウザは利用者が操作するまで音を鳴らせない決まりなので、
+      // スタートボタンを押した流れの中で再生する。
+      var SOUND_KEY = 'engineSound';
+      function soundEnabled() {
+        try { return localStorage.getItem(SOUND_KEY) !== 'off'; } catch (e) { return true; }
+      }
+      function setSoundEnabled(on) {
+        try { localStorage.setItem(SOUND_KEY, on ? 'on' : 'off'); } catch (e) { /* 保存できなくても動く */ }
+      }
+
+      function enterApp() {
+        var ignition = el('ignition');
+        if (!ignition || ignition.classList.contains('gone')) return;
+        ignition.classList.add('gone');
+        // アニメーションが終わってから表示から外す
+        setTimeout(function () { ignition.style.display = 'none'; }, 600);
+      }
+
+      (function setupIgnition() {
+        var starter = el('starter');
+        var muteBtn = el('mute-toggle');
+        var audio = el('engine');
+        if (!starter) return;
+
+        function paintMute() {
+          muteBtn.textContent = soundEnabled() ? '音を消す' : '音を出す';
+        }
+        paintMute();
+        muteBtn.addEventListener('click', function (event) {
+          event.stopPropagation();
+          setSoundEnabled(!soundEnabled());
+          paintMute();
+        });
+
+        starter.addEventListener('click', function () {
+          starter.classList.add('cranking');
+          var wait = 320;
+          if (soundEnabled() && audio) {
+            try {
+              audio.currentTime = 0;
+              var played = audio.play();
+              if (played && played.catch) played.catch(function () { /* 鳴らせなくても進む */ });
+              // エンジンがかかる音の途中で画面へ入ると気持ちがよい
+              wait = 900;
+            } catch (e) { /* 鳴らせなくても進む */ }
+          }
+          setTimeout(function () {
+            starter.classList.remove('cranking');
+            enterApp();
+          }, wait);
+        });
+      })();
+
       render();
       // 画面を出したあとにカレンダーを読む。ここを待つと表示が遅くなるため。
+      // 起動画面を見ている間に裏で終わるので、体感では待ち時間が消える。
       if (DATA.needsSync) syncCalendar(false);
     </script>
   </body>

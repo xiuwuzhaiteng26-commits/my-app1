@@ -25,6 +25,8 @@ function doGet() {
   }
   // </script> でタグを閉じられないように < をエスケープしてから埋め込む
   template.bootstrapJson = JSON.stringify(payload).replace(/</g, '\\u003c');
+  // 起動画面のスタートボタンで鳴らすエンジン音（base64なのでそのまま埋めて安全）
+  template.engineSound = engineSoundDataUri_();
 
   // addMetaTag で指定できるのは viewport / mobile-web-app-capable /
   // apple-mobile-web-app-capable / google-site-verification の4つだけ。
@@ -114,6 +116,21 @@ function buildAppData_(options) {
     };
   });
 
+  var payCycles = readTable_(SHEETS.PAYCYCLE).rows.map(function (r) {
+    return {
+      companyName: String(r.company_name || ''),
+      cutoffDay: toNumber_(r.cutoff_day),
+      payMonthOffset: isBlank_(r.pay_month_offset)
+        ? CONFIG.payCycle.fallback.payMonthOffset
+        : toNumber_(r.pay_month_offset),
+      payDay: toNumber_(r.pay_day),
+      shiftRule: String(r.shift_rule || ''),
+      shiftOnHoliday: toBool_(r.shift_on_holiday),
+      confirmed: toBool_(r.confirmed),
+      note: String(r.note || '')
+    };
+  });
+
   var limits = readTable_(SHEETS.LIMITS).rows.map(function (r) {
     return {
       companyName: String(r.company_name || ''),
@@ -191,6 +208,7 @@ function buildAppData_(options) {
     },
     recentEntries: recent,
     payments: payments,
+    payCycles: payCycles,
     holidaysAvailable: !!snapshot.holidaysAvailable,
     limits: limits,
     manualEntries: manual,

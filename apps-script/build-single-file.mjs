@@ -16,6 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 /** 読み込む順番（CONFIG や SCHEMA の定義を先に置く） */
 export const SOURCE_FILES = [
   'Config.js',
+  'Assets.js',
   'Util.js',
   'Sheets.js',
   'Parser.js',

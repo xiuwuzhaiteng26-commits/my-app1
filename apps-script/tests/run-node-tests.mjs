@@ -15,6 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const files = [
   'Config.js',
+  'Assets.js',
   'Util.js',
   'Sheets.js',
   'Parser.js',
