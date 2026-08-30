@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "build:apps-script": "node apps-script/build-single-file.mjs",
+    "test:apps-script": "node apps-script/tests/run-node-tests.mjs && node apps-script/tests/run-integration-tests.mjs && npm run build:apps-script && node apps-script/tests/run-integration-tests.mjs --bundle && node apps-script/tests/run-page-tests.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
