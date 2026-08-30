@@ -19,6 +19,8 @@ const files = [
   'Sheets.js',
   'Parser.js',
   'Calc.js',
+  'Holidays.js',
+  'PayCycle.js',
   'CalendarSource.js',
   'Forecast.js',
   'Summary.js',

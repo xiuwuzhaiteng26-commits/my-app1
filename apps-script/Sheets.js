@@ -9,6 +9,7 @@ var SHEETS = {
   LIMITS: '勤務先の上限',
   WALLS: '壁の設定',
   RECONCILE: '月次の答え合わせ',
+  PAYCYCLE: '給与サイクル',
   SUMMARY: 'サマリー',
   LOG: '実行ログ'
 };
@@ -41,7 +42,8 @@ SCHEMA[SHEETS.CALENDAR] = [
   'updated_at',
   // 後から追加した列。既存シートの並びを崩さないよう末尾に足している
   'allowance',
-  'fixed_amount'
+  'fixed_amount',
+  'paid_on'
 ];
 SCHEMA[SHEETS.MANUAL] = [
   'id',
@@ -63,6 +65,17 @@ SCHEMA[SHEETS.LIMITS] = [
   'weekly_hour_limit',
   'consecutive_months',
   'basis'
+];
+SCHEMA[SHEETS.PAYCYCLE] = [
+  'company_name',
+  'cutoff_day',
+  'pay_month_offset',
+  'pay_day',
+  'shift_rule',
+  'shift_on_holiday',
+  'confirmed',
+  'note',
+  'updated_at'
 ];
 SCHEMA[SHEETS.WALLS] = ['name', 'amount', 'applicable_year', 'last_updated', 'note'];
 SCHEMA[SHEETS.RECONCILE] = [
@@ -99,7 +112,8 @@ HEADER_LABELS[SHEETS.CALENDAR] = [
   '元の予定タイトル',
   '更新日時',
   '手当(円)',
-  '支給額(円)'
+  '支給額(円)',
+  '支給日'
 ];
 HEADER_LABELS[SHEETS.MANUAL] = ['ID', '収入元', '区分', '対象期間', '金額(円)', '必要経費(円)', 'メモ', '更新日時'];
 HEADER_LABELS[SHEETS.LIMITS] = [
@@ -111,6 +125,17 @@ HEADER_LABELS[SHEETS.LIMITS] = [
   '週の上限(h)',
   '連続月数',
   '根拠'
+];
+HEADER_LABELS[SHEETS.PAYCYCLE] = [
+  '勤務先',
+  '締め日',
+  '支給までの月数',
+  '支給日',
+  '休日のとき',
+  '祝日も動かす',
+  '確定',
+  'メモ',
+  '更新日時'
 ];
 HEADER_LABELS[SHEETS.WALLS] = ['壁の名前', '金額(円)', '適用年', '最終更新日', '備考'];
 HEADER_LABELS[SHEETS.RECONCILE] = [
@@ -139,9 +164,10 @@ var INCOME_CATEGORY = {
  * シート作成時に「書式なしテキスト」にしておく）
  */
 var TEXT_COLUMNS = {};
-TEXT_COLUMNS[SHEETS.CALENDAR] = ['date', 'start_time', 'end_time', 'updated_at'];
+TEXT_COLUMNS[SHEETS.CALENDAR] = ['date', 'start_time', 'end_time', 'updated_at', 'paid_on'];
 TEXT_COLUMNS[SHEETS.MANUAL] = ['period', 'updated_at'];
 TEXT_COLUMNS[SHEETS.LIMITS] = ['updated_at'];
+TEXT_COLUMNS[SHEETS.PAYCYCLE] = ['updated_at'];
 TEXT_COLUMNS[SHEETS.WALLS] = ['last_updated'];
 TEXT_COLUMNS[SHEETS.RECONCILE] = ['year_month', 'entered_at'];
 TEXT_COLUMNS[SHEETS.LOG] = ['executed_at'];
@@ -197,6 +223,7 @@ function invalidateSheetCaches_() {
 function beginExecution_() {
   invalidateSheetCaches_();
   invalidateCalendarCache_();
+  invalidateHolidayCache_();
 }
 
 /** シートを取得（無ければヘッダー付きで作成） */
@@ -227,7 +254,7 @@ function getSheet_(name) {
  * シートの構成（名前・見出し・初期データ）のバージョン。
  * 列や壁を増やしたらこの値を上げること。次回の実行で移行処理が1度だけ走る。
  */
-var SCHEMA_VERSION = '2026-08-29-fixed-amount';
+var SCHEMA_VERSION = '2026-08-30-paycycle';
 
 /** スクリプトプロパティ（使えない環境では null） */
 function getScriptProperties_() {

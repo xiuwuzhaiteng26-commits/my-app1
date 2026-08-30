@@ -55,6 +55,26 @@ var SEED_SHIFTS = [];
  */
 var SEED_COMPANY_LIMITS = [];
 
+/**
+ * 会社ごとの給与サイクル（締め日と支給日）
+ *
+ * ここも空のまま公開リポジトリに置いています。会社名は個人情報なので、
+ * 自分の Apps Script プロジェクト側でだけ書いてください。
+ *
+ * 書き方:
+ *   {
+ *     company_name: '〇〇',
+ *     cutoff_day: 20,          // 締め日。31 と書くと月末締め
+ *     pay_month_offset: 1,     // 締め月の何ヶ月後に支給されるか
+ *     pay_day: 10,             // 支給日。31 と書くと月末払い
+ *     shift_rule: '前倒し',    // 支給日が休日のとき '前倒し' | '後ろ倒し' | 'そのまま'
+ *     shift_on_holiday: true,  // 土日だけでなく祝日も休みとして扱うか
+ *     confirmed: true,
+ *     note: '21日〜翌20日の勤務が翌月10日払い（2026-08-30 会社から確認）'
+ *   }
+ */
+var SEED_PAY_CYCLES = [];
+
 /** 同じ勤務を指すかどうかの判定キー */
 function shiftKey_(date, companyName, startTime) {
   return toDateString_(date) + '\t' + String(companyName).trim() + '\t' + toTimeString_(startTime);
@@ -63,7 +83,12 @@ function shiftKey_(date, companyName, startTime) {
 /** メニューから呼ぶ本体 */
 function importSeedData() {
   ensureSheets_();
-  if (SEED_MANUAL_INCOME.length === 0 && SEED_SHIFTS.length === 0 && SEED_COMPANY_LIMITS.length === 0) {
+  if (
+    SEED_MANUAL_INCOME.length === 0 &&
+    SEED_SHIFTS.length === 0 &&
+    SEED_COMPANY_LIMITS.length === 0 &&
+    SEED_PAY_CYCLES.length === 0
+  ) {
     showAlert_(
       '登録するデータがありません',
       'SeedData の SEED_MANUAL_INCOME と SEED_SHIFTS に、収入とシフトを書いてから実行してください。'
@@ -73,6 +98,7 @@ function importSeedData() {
   var manual = seedManualIncome_();
   var shifts = seedShifts_();
   var limits = seedCompanyLimits_();
+  var cycles = seedPayCycles_();
 
   recalcReconciliations_();
   var snapshot = buildSnapshot_(new Date(), null);
@@ -84,6 +110,9 @@ function importSeedData() {
     (shifts.skipped ? ' / ' + shifts.skipped + '件はカレンダー取り込み済みのため見送り' : '') +
     (limits.inserted + limits.updated > 0
       ? '\n勤務先の上限: ' + limits.inserted + '件追加 / ' + limits.updated + '件更新'
+      : '') +
+    (cycles.inserted + cycles.updated > 0
+      ? '\n給与サイクル: ' + cycles.inserted + '件追加 / ' + cycles.updated + '件更新'
       : '');
   writeLog_('seed', '正常', message.replace(/\n/g, ' '));
   showSummaryAlert_('実データを取り込みました\n\n' + message, snapshot);
@@ -125,6 +154,27 @@ function seedCompanyLimits_() {
     };
   });
   return upsertRows_(SHEETS.LIMITS, rows, 'company_name');
+}
+
+/** 給与サイクルを登録（勤務先をキーに上書き） */
+function seedPayCycles_() {
+  if (SEED_PAY_CYCLES.length === 0) return { inserted: 0, updated: 0 };
+  var fb = CONFIG.payCycle.fallback;
+  var now = formatDateTime_(new Date());
+  var rows = SEED_PAY_CYCLES.map(function (item) {
+    return {
+      company_name: item.company_name,
+      cutoff_day: item.cutoff_day || fb.cutoffDay,
+      pay_month_offset: item.pay_month_offset === undefined ? fb.payMonthOffset : item.pay_month_offset,
+      pay_day: item.pay_day || fb.payDay,
+      shift_rule: item.shift_rule || fb.shiftRule,
+      shift_on_holiday: item.shift_on_holiday === undefined ? !!fb.shiftOnHoliday : !!item.shift_on_holiday,
+      confirmed: !!item.confirmed,
+      note: item.note || '',
+      updated_at: now
+    };
+  });
+  return upsertRows_(SHEETS.PAYCYCLE, rows, 'company_name');
 }
 
 /** シフトを勤務明細に登録（カレンダーから取り込み済みの勤務は触らない） */

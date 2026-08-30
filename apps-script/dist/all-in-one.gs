@@ -78,6 +78,42 @@ var CONFIG = {
     paceMonths: 3
   },
 
+  /**
+   * 給与サイクル（締め日と支給日）。
+   * 年収の壁は「支給日」が属する年で判定する（所得税基本通達36-9）ため、
+   * 勤務日ではなく支給日で集計している。
+   *
+   * 会社ごとの実際の設定は 給与サイクル シートで管理する。
+   * ここにあるのは、シートに登録が無い勤務先に使う暫定値。
+   */
+  payCycle: {
+    /** 壁の判定を支給日ベースにするか。false にすると勤務日ベース（旧来の動き）に戻る */
+    useForWalls: true,
+    lastUpdated: '2026-08-30',
+    fallback: {
+      /** 締め日。31 を書くと月末締め */
+      cutoffDay: 31,
+      /** 締め月の何ヶ月後に支給されるか */
+      payMonthOffset: 1,
+      /** 支給日。31 を書くと月末払い */
+      payDay: 25,
+      /** 支給日が休日のとき: '前倒し' | '後ろ倒し' | 'そのまま' */
+      shiftRule: '前倒し',
+      /** 土日だけでなく祝日も休みとして扱うか（銀行振込は祝日も動かないため既定は true） */
+      shiftOnHoliday: true
+    }
+  },
+
+  /** 祝日（支給日の前倒し判定に使う） */
+  holidays: {
+    /** Googleが公開している日本の祝日カレンダー */
+    calendarId: 'ja.japanese#holiday@group.v.calendar.google.com',
+    /** 取り込んだ祝日を何日で取り込み直すか */
+    refreshDays: 45,
+    /** 会社独自の休業日などを足したいときに 'yyyy-MM-dd' で書く */
+    extra: []
+  },
+
   /** 年収の壁（暫定値・年度更新前提） */
   walls: {
     /** 壁のこの割合に達したら「注意」 */
@@ -221,6 +257,11 @@ function pad2_(v) {
 }
 
 /** '1,226円' や 1226 を数値へ。数値化できなければ 0 */
+/** 空欄か（0 や false は「空欄ではない」と判定する） */
+function isBlank_(value) {
+  return value === null || value === undefined || String(value).trim() === '';
+}
+
 function toNumber_(value) {
   if (typeof value === 'number') return isFinite(value) ? value : 0;
   var s = String(value == null ? '' : value).replace(/[,\s円]/g, '');
@@ -345,6 +386,7 @@ var SHEETS = {
   LIMITS: '勤務先の上限',
   WALLS: '壁の設定',
   RECONCILE: '月次の答え合わせ',
+  PAYCYCLE: '給与サイクル',
   SUMMARY: 'サマリー',
   LOG: '実行ログ'
 };
@@ -377,7 +419,8 @@ SCHEMA[SHEETS.CALENDAR] = [
   'updated_at',
   // 後から追加した列。既存シートの並びを崩さないよう末尾に足している
   'allowance',
-  'fixed_amount'
+  'fixed_amount',
+  'paid_on'
 ];
 SCHEMA[SHEETS.MANUAL] = [
   'id',
@@ -399,6 +442,17 @@ SCHEMA[SHEETS.LIMITS] = [
   'weekly_hour_limit',
   'consecutive_months',
   'basis'
+];
+SCHEMA[SHEETS.PAYCYCLE] = [
+  'company_name',
+  'cutoff_day',
+  'pay_month_offset',
+  'pay_day',
+  'shift_rule',
+  'shift_on_holiday',
+  'confirmed',
+  'note',
+  'updated_at'
 ];
 SCHEMA[SHEETS.WALLS] = ['name', 'amount', 'applicable_year', 'last_updated', 'note'];
 SCHEMA[SHEETS.RECONCILE] = [
@@ -435,7 +489,8 @@ HEADER_LABELS[SHEETS.CALENDAR] = [
   '元の予定タイトル',
   '更新日時',
   '手当(円)',
-  '支給額(円)'
+  '支給額(円)',
+  '支給日'
 ];
 HEADER_LABELS[SHEETS.MANUAL] = ['ID', '収入元', '区分', '対象期間', '金額(円)', '必要経費(円)', 'メモ', '更新日時'];
 HEADER_LABELS[SHEETS.LIMITS] = [
@@ -447,6 +502,17 @@ HEADER_LABELS[SHEETS.LIMITS] = [
   '週の上限(h)',
   '連続月数',
   '根拠'
+];
+HEADER_LABELS[SHEETS.PAYCYCLE] = [
+  '勤務先',
+  '締め日',
+  '支給までの月数',
+  '支給日',
+  '休日のとき',
+  '祝日も動かす',
+  '確定',
+  'メモ',
+  '更新日時'
 ];
 HEADER_LABELS[SHEETS.WALLS] = ['壁の名前', '金額(円)', '適用年', '最終更新日', '備考'];
 HEADER_LABELS[SHEETS.RECONCILE] = [
@@ -475,9 +541,10 @@ var INCOME_CATEGORY = {
  * シート作成時に「書式なしテキスト」にしておく）
  */
 var TEXT_COLUMNS = {};
-TEXT_COLUMNS[SHEETS.CALENDAR] = ['date', 'start_time', 'end_time', 'updated_at'];
+TEXT_COLUMNS[SHEETS.CALENDAR] = ['date', 'start_time', 'end_time', 'updated_at', 'paid_on'];
 TEXT_COLUMNS[SHEETS.MANUAL] = ['period', 'updated_at'];
 TEXT_COLUMNS[SHEETS.LIMITS] = ['updated_at'];
+TEXT_COLUMNS[SHEETS.PAYCYCLE] = ['updated_at'];
 TEXT_COLUMNS[SHEETS.WALLS] = ['last_updated'];
 TEXT_COLUMNS[SHEETS.RECONCILE] = ['year_month', 'entered_at'];
 TEXT_COLUMNS[SHEETS.LOG] = ['executed_at'];
@@ -533,6 +600,7 @@ function invalidateSheetCaches_() {
 function beginExecution_() {
   invalidateSheetCaches_();
   invalidateCalendarCache_();
+  invalidateHolidayCache_();
 }
 
 /** シートを取得（無ければヘッダー付きで作成） */
@@ -563,7 +631,7 @@ function getSheet_(name) {
  * シートの構成（名前・見出し・初期データ）のバージョン。
  * 列や壁を増やしたらこの値を上げること。次回の実行で移行処理が1度だけ走る。
  */
-var SCHEMA_VERSION = '2026-08-29-fixed-amount';
+var SCHEMA_VERSION = '2026-08-30-paycycle';
 
 /** スクリプトプロパティ（使えない環境では null） */
 function getScriptProperties_() {
@@ -1040,8 +1108,12 @@ function computeSalaryDeduction_(salaryRevenue) {
 /**
  * 年間の収入・所得を集計する。
  * 給与所得分（カレンダー由来 + 手入力の給与所得）と事業所得分・雑所得分を分けて管理する。
+ *
+ * 給与は「支給日」が属する年の収入として数える（所得税基本通達36-9）。
+ * resolvePayment(勤務先, 勤務日) が支給日を返せばそれを使い、
+ * 返せなければ勤務日で数える（給与サイクル未設定のときの保険）。
  */
-function aggregateAnnual_(calendarRows, manualRows, targetYear) {
+function aggregateAnnual_(calendarRows, manualRows, targetYear, resolvePayment) {
   var salaryRevenue = 0;
   var calendarRevenue = 0;
   var allowanceTotal = 0;
@@ -1049,10 +1121,24 @@ function aggregateAnnual_(calendarRows, manualRows, targetYear) {
   var business = { revenue: 0, expenses: 0 };
   var misc = { revenue: 0, expenses: 0 };
   var warnings = [];
+  var usePayDate = !!resolvePayment && CONFIG.payCycle.useForWalls;
+  var carriedIn = 0;
+  var carriedOut = 0;
 
   calendarRows.forEach(function (r) {
-    var year = yearOfDateString_(toDateString_(r.date));
-    if (year !== targetYear) return;
+    var workDate = toDateString_(r.date);
+    var workYear = yearOfDateString_(workDate);
+    var year = workYear;
+    if (usePayDate) {
+      var payment = resolvePayment(String(r.company_name || '').trim(), workDate);
+      if (payment && payment.payDate) year = yearOfDateString_(payment.payDate);
+    }
+    if (year !== targetYear) {
+      // 年をまたいだ分を、あとで説明できるように数えておく
+      if (workYear === targetYear) carriedOut += toNumber_(r.estimated_amount);
+      return;
+    }
+    if (workYear !== targetYear) carriedIn += toNumber_(r.estimated_amount);
     calendarRevenue += toNumber_(r.estimated_amount);
     allowanceTotal += toNumber_(r.allowance);
   });
@@ -1096,6 +1182,12 @@ function aggregateAnnual_(calendarRows, manualRows, targetYear) {
     targetYear: targetYear,
     calendarRevenue: calendarRevenue,
     allowanceTotal: allowanceTotal,
+    /** 支給日ベースで集計したか */
+    byPayDate: usePayDate,
+    /** 前年に働いて今年支給された分 */
+    carriedInRevenue: carriedIn,
+    /** 今年働いて翌年に支給される分 */
+    carriedOutRevenue: carriedOut,
     manualSalaryRevenue: manualSalaryRevenue,
     salaryRevenue: salaryRevenue,
     businessRevenue: business.revenue,
@@ -1353,6 +1445,361 @@ function evaluateReconciliation_(estimatedAmount, actualAmount) {
     rate: rate,
     status: overRate && overAmount ? '要確認' : 'OK'
   };
+}
+
+/* ======================= Holidays.js ======================= */
+
+/**
+ * 日本の祝日
+ *
+ * 支給日が休日にあたったときの前倒し判定に使う。
+ * Googleが公開している「日本の祝日」カレンダーから取り込み、
+ * スクリプトのプロパティに保存して使い回す。
+ *
+ * 画面表示のときはカレンダーに触らない（起動を遅くしないため）。
+ * 保存済みのものが無い場合は土日だけで判定し、その旨を暫定として扱う。
+ */
+
+var HOLIDAY_PROP_KEY = 'JP_HOLIDAYS';
+var HOLIDAY_CACHE = null;
+
+function invalidateHolidayCache_() {
+  HOLIDAY_CACHE = null;
+}
+
+/**
+ * 保存済みの祝日を読む。カレンダーには触らない。
+ * 戻り値: { map: {'yyyy-MM-dd': 名前}, years: [..], fetchedAt, available }
+ */
+function readStoredHolidays_() {
+  if (HOLIDAY_CACHE) return HOLIDAY_CACHE;
+  var empty = { map: {}, years: [], fetchedAt: '', available: false };
+  var raw;
+  try {
+    raw = PropertiesService.getScriptProperties().getProperty(HOLIDAY_PROP_KEY);
+  } catch (e) {
+    HOLIDAY_CACHE = empty;
+    return empty;
+  }
+  if (!raw) {
+    HOLIDAY_CACHE = empty;
+    return empty;
+  }
+  var parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    HOLIDAY_CACHE = empty;
+    return empty;
+  }
+  HOLIDAY_CACHE = {
+    map: parsed.map || {},
+    years: parsed.years || [],
+    fetchedAt: parsed.fetchedAt || '',
+    available: Object.keys(parsed.map || {}).length > 0
+  };
+  return HOLIDAY_CACHE;
+}
+
+/** 祝日の取り込みが必要か（対象の年が入っていない、または古い） */
+function holidaysNeedRefresh_(today) {
+  var stored = readStoredHolidays_();
+  if (!stored.available) return true;
+  var year = today.getFullYear();
+  // 年をまたぐ支給日も判定するので、翌年分まで持っておく
+  if (stored.years.indexOf(year) < 0 || stored.years.indexOf(year + 1) < 0) return true;
+  if (!stored.fetchedAt) return true;
+  var age = (today.getTime() - new Date(stored.fetchedAt).getTime()) / (24 * 60 * 60 * 1000);
+  return !(age >= 0) || age > CONFIG.holidays.refreshDays;
+}
+
+/**
+ * 祝日カレンダーから取り込んで保存する。カレンダーを1回読む。
+ * 画面表示ではなく、カレンダー同期・毎晩の実行からのみ呼ぶこと。
+ */
+function refreshHolidays_(today, force) {
+  if (!force && !holidaysNeedRefresh_(today)) return readStoredHolidays_();
+  var calendar;
+  try {
+    calendar = CalendarApp.getCalendarById(CONFIG.holidays.calendarId);
+  } catch (e) {
+    calendar = null;
+  }
+  if (!calendar) return readStoredHolidays_();
+
+  var year = today.getFullYear();
+  var years = [year - 1, year, year + 1];
+  var map = {};
+  try {
+    var events = calendar.getEvents(new Date(years[0], 0, 1), new Date(years[2] + 1, 0, 1));
+    events.forEach(function (event) {
+      map[formatDate_(event.getStartTime())] = event.getTitle();
+    });
+  } catch (e) {
+    return readStoredHolidays_();
+  }
+  if (!Object.keys(map).length) return readStoredHolidays_();
+
+  // 設定に手で足した休業日（会社独自の休みなど）も混ぜる
+  (CONFIG.holidays.extra || []).forEach(function (d) {
+    map[String(d)] = '設定で追加';
+  });
+
+  var payload = { map: map, years: years, fetchedAt: formatDateTime_(today) };
+  try {
+    PropertiesService.getScriptProperties().setProperty(HOLIDAY_PROP_KEY, JSON.stringify(payload));
+  } catch (e) {
+    // 保存できなくても、この実行の中では使えるようにする
+  }
+  HOLIDAY_CACHE = { map: map, years: years, fetchedAt: payload.fetchedAt, available: true };
+  return HOLIDAY_CACHE;
+}
+
+/** 判定に使う祝日表（保存済みのもの。無ければ空） */
+function holidayMap_() {
+  return readStoredHolidays_().map;
+}
+
+/** メニューから手動で取り込み直す */
+function refreshHolidaysFromMenu_() {
+  invalidateHolidayCache_();
+  var result = refreshHolidays_(new Date(), true);
+  showAlert_(
+    result.available ? '祝日を取り込みました' : '祝日を取り込めませんでした',
+    result.available
+      ? '対象年: ' + result.years.join('・') + '\n登録数: ' + Object.keys(result.map).length + '件'
+      : 'Googleの「日本の祝日」カレンダーを読めませんでした。しばらく待ってからもう一度お試しください。' +
+          '取り込めていない間は、支給日の調整は土日のみで判定します。'
+  );
+}
+
+/* ======================= PayCycle.js ======================= */
+
+/**
+ * 給与サイクル（締め日と支給日）
+ *
+ * 会社によって「いつまでに働いた分が、いつ振り込まれるか」が違う。
+ * 年収の壁の判定は、税法上「支給日」が属する年で数えるため
+ * （所得税基本通達36-9）、勤務日ではなく支給日で集計する。
+ *
+ * 例: 21日〆・翌月10日払いの会社で 3/21〜4/20 に働いた分は、5/10 に支給される。
+ *     5/10 が日曜なら、前倒しで 5/8（金）になる。
+ */
+
+/** 支給日が休日にあたったときの動かし方 */
+var PAY_SHIFT_EARLIER = '前倒し';
+var PAY_SHIFT_LATER = '後ろ倒し';
+var PAY_SHIFT_NONE = 'そのまま';
+
+/**
+ * 会社の給与サイクル設定を読む。
+ * シートに無い勤務先は CONFIG.payCycle.fallback を暫定値として使う。
+ */
+function readPayCycles_() {
+  var map = {};
+  readTable_(SHEETS.PAYCYCLE).rows.forEach(function (r) {
+    var name = String(r.company_name || '').trim();
+    if (!name) return;
+    map[name] = {
+      companyName: name,
+      cutoffDay: toNumber_(r.cutoff_day) || CONFIG.payCycle.fallback.cutoffDay,
+      // 0（当月払い）も正しい値なので、空欄のときだけ既定値にする
+      payMonthOffset: isBlank_(r.pay_month_offset)
+        ? CONFIG.payCycle.fallback.payMonthOffset
+        : toNumber_(r.pay_month_offset),
+      payDay: toNumber_(r.pay_day) || CONFIG.payCycle.fallback.payDay,
+      shiftRule: String(r.shift_rule || CONFIG.payCycle.fallback.shiftRule).trim(),
+      shiftOnHoliday: toBool_(r.shift_on_holiday),
+      confirmed: toBool_(r.confirmed),
+      note: String(r.note || '')
+    };
+  });
+  return map;
+}
+
+/** 勤務先の給与サイクル。登録が無ければ暫定値を返す */
+function payCycleFor_(cycles, companyName) {
+  var name = String(companyName || '').trim();
+  if (cycles && cycles[name]) return cycles[name];
+  var fb = CONFIG.payCycle.fallback;
+  return {
+    companyName: name,
+    cutoffDay: fb.cutoffDay,
+    payMonthOffset: fb.payMonthOffset,
+    payDay: fb.payDay,
+    shiftRule: fb.shiftRule,
+    shiftOnHoliday: !!fb.shiftOnHoliday,
+    confirmed: false,
+    note: '未登録のため暫定値'
+  };
+}
+
+/** その月の日数 */
+function daysInMonth_(year, month1to12) {
+  return new Date(year, month1to12, 0).getDate();
+}
+
+/** 年・月・日から 'yyyy-MM-dd'。日がその月に無ければ月末に丸める（31日〆＝月末など） */
+function clampedDateString_(year, month1to12, day) {
+  var total = year * 12 + (month1to12 - 1);
+  var y = Math.floor(total / 12);
+  var m = (total % 12) + 1;
+  var last = daysInMonth_(y, m);
+  var d = Math.min(Math.max(1, Math.round(day)), last);
+  return y + '-' + pad2_(m) + '-' + pad2_(d);
+}
+
+/**
+ * 勤務日が属する締め日を返す。
+ * cutoffDay が月末を超える指定（31など）なら、その月の月末が締め日になる。
+ */
+function cutoffDateFor_(workDate, cutoffDay) {
+  var m = String(workDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  var year = Number(m[1]);
+  var month = Number(m[2]);
+  var day = Number(m[3]);
+  var cutoffThisMonth = Math.min(cutoffDay, daysInMonth_(year, month));
+  // 締め日を過ぎていれば、次の締め（翌月）の期間に入る
+  var offset = day <= cutoffThisMonth ? 0 : 1;
+  return clampedDateString_(year, month + offset, cutoffDay);
+}
+
+/** 締め日から、休日調整をする前の支給日を返す */
+function scheduledPayDate_(cutoffDate, cycle) {
+  var m = String(cutoffDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return clampedDateString_(Number(m[1]), Number(m[2]) + cycle.payMonthOffset, cycle.payDay);
+}
+
+/** 土日か */
+function isWeekend_(dateStr) {
+  var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  var day = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0).getDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * 支給日が休日にあたっていたら、前後の営業日にずらす。
+ * holidays は { 'yyyy-MM-dd': true } の形。空でも土日の判定はできる。
+ */
+function adjustPayDate_(dateStr, shiftRule, shiftOnHoliday, holidays) {
+  if (shiftRule === PAY_SHIFT_NONE) return dateStr;
+  var step = shiftRule === PAY_SHIFT_LATER ? 1 : -1;
+  var current = dateStr;
+  // 連休が続いても抜けられるように、上限を決めて動かす
+  for (var i = 0; i < 30; i++) {
+    var closed = isWeekend_(current) || (shiftOnHoliday && holidays && holidays[current]);
+    if (!closed) return current;
+    current = addDays_(current, step);
+  }
+  return dateStr;
+}
+
+/**
+ * 勤務日から支給日を求める。
+ * 戻り値: { cutoffDate, scheduledDate, payDate, periodFrom, periodTo, confirmed, cycle }
+ */
+function resolvePayment_(workDate, cycle, holidays) {
+  var cutoffDate = cutoffDateFor_(workDate, cycle.cutoffDay);
+  if (!cutoffDate) return null;
+  var scheduled = scheduledPayDate_(cutoffDate, cycle);
+  var payDate = adjustPayDate_(scheduled, cycle.shiftRule, cycle.shiftOnHoliday, holidays);
+  // 締め期間は「前回の締め日の翌日」から「今回の締め日」まで
+  var cut = cutoffDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  var periodFrom = addDays_(clampedDateString_(Number(cut[1]), Number(cut[2]) - 1, cycle.cutoffDay), 1);
+  return {
+    cutoffDate: cutoffDate,
+    periodFrom: periodFrom,
+    periodTo: cutoffDate,
+    scheduledDate: scheduled,
+    payDate: payDate,
+    moved: scheduled !== payDate,
+    confirmed: !!cycle.confirmed,
+    companyName: cycle.companyName
+  };
+}
+
+/** 勤務先ごとの支給日を一度に引けるようにした関数を返す（毎回シートを読まないため） */
+function makePaymentResolver_(holidays) {
+  var cycles = readPayCycles_();
+  var cache = {};
+  return function (companyName, workDate) {
+    var key = companyName + '\t' + workDate;
+    if (cache[key] === undefined) {
+      cache[key] = resolvePayment_(workDate, payCycleFor_(cycles, companyName), holidays);
+    }
+    return cache[key];
+  };
+}
+
+/**
+ * 勤務明細を支給日ごとにまとめる。
+ * 「この日にいくら振り込まれる（振り込まれた）か」を出すためのもの。
+ * 戻り値は支給日の古い順。
+ */
+function aggregatePayments_(calendarRows, resolvePayment, today, targetYear) {
+  var todayStr = formatDate_(today);
+  var groups = {};
+
+  calendarRows.forEach(function (r) {
+    var workDate = toDateString_(r.date);
+    var company = String(r.company_name || '').trim();
+    var payment = resolvePayment(company, workDate);
+    if (!payment || !payment.payDate) return;
+    if (targetYear && yearOfDateString_(payment.payDate) !== targetYear) return;
+
+    var key = payment.payDate + '\t' + company;
+    if (!groups[key]) {
+      groups[key] = {
+        payDate: payment.payDate,
+        scheduledDate: payment.scheduledDate,
+        moved: payment.moved,
+        companyName: company,
+        periodFrom: payment.periodFrom,
+        periodTo: payment.periodTo,
+        confirmed: payment.confirmed,
+        days: 0,
+        hours: 0,
+        allowance: 0,
+        amount: 0
+      };
+    }
+    var g = groups[key];
+    g.days += 1;
+    g.hours += toNumber_(r.worked_hours);
+    g.allowance += toNumber_(r.allowance);
+    g.amount += toNumber_(r.estimated_amount);
+  });
+
+  return Object.keys(groups)
+    .sort()
+    .map(function (key) {
+      var g = groups[key];
+      g.hours = round2_(g.hours);
+      g.isPaid = g.payDate <= todayStr;
+      return g;
+    });
+}
+
+/** 支給日ごとの合計（同じ日に複数社から振り込まれる場合をまとめる） */
+function groupPaymentsByDate_(payments) {
+  var byDate = {};
+  var order = [];
+  payments.forEach(function (p) {
+    if (!byDate[p.payDate]) {
+      byDate[p.payDate] = { payDate: p.payDate, isPaid: p.isPaid, amount: 0, hours: 0, companies: [] };
+      order.push(p.payDate);
+    }
+    var d = byDate[p.payDate];
+    d.amount += p.amount;
+    d.hours = round2_(d.hours + p.hours);
+    d.companies.push(p);
+  });
+  return order.sort().map(function (date) {
+    return byDate[date];
+  });
 }
 
 /* ======================= CalendarSource.js ======================= */
@@ -1646,7 +2093,7 @@ function fetchPlannedShifts_(startDate, endDate) {
  */
 
 /** 先読みしてアドバイスまで作る */
-function buildForecast_(calendarRows, limitRows, walls, annual, today) {
+function buildForecast_(calendarRows, limitRows, walls, annual, today, resolvePayment) {
   var start = new Date(today.getTime());
   start.setHours(0, 0, 0, 0);
   var end = new Date(start.getTime());
@@ -1679,7 +2126,7 @@ function buildForecast_(calendarRows, limitRows, walls, annual, today) {
     errors: fetched.errors,
     months: forecastMonths_(calendarRows, planned, limitRows, today),
     consecutive: forecastConsecutive_(calendarRows, planned, limitRows, today),
-    walls: forecastWalls_(walls, annual, planned),
+    walls: forecastWalls_(walls, annual, planned, resolvePayment),
     pace: forecastPace_(calendarRows, annual, walls, today),
     averageWage: averageHourlyWage_(planned.length > 0 ? planned : calendarRows)
   };
@@ -1779,8 +2226,17 @@ function forecastConsecutive_(calendarRows, planned, limitRows, today) {
 }
 
 /** 予定を全部こなした場合の壁の状況 */
-function forecastWalls_(walls, annual, planned) {
-  var plannedRevenue = sumBy_(planned, 'estimated_amount');
+function forecastWalls_(walls, annual, planned, resolvePayment) {
+  // 壁は支給日が属する年で判定するので、支給が翌年になる予定は今年に足さない
+  var counted = planned;
+  if (resolvePayment && CONFIG.payCycle.useForWalls) {
+    counted = planned.filter(function (e) {
+      var payment = resolvePayment(String(e.company_name || '').trim(), e.date);
+      if (!payment || !payment.payDate) return true;
+      return yearOfDateString_(payment.payDate) === annual.targetYear;
+    });
+  }
+  var plannedRevenue = sumBy_(counted, 'estimated_amount');
   var projected = annual.totalRevenue + plannedRevenue;
   return walls.map(function (w) {
     var remaining = w.amount - projected;
@@ -1982,7 +2438,12 @@ function buildSnapshot_(today, runInfo, options) {
   var wallRows = readTable_(SHEETS.WALLS).rows;
   var reconcileRows = readTable_(SHEETS.RECONCILE).rows;
 
-  var annual = aggregateAnnual_(calendarRows, manualRows, targetYear);
+  // 給与は支給日が属する年の収入として数えるので、勤務先ごとの締め・支給日を先に用意する
+  var holidays = holidayMap_();
+  var resolvePayment = makePaymentResolver_(holidays);
+
+  var annual = aggregateAnnual_(calendarRows, manualRows, targetYear, resolvePayment);
+  var payments = aggregatePayments_(calendarRows, resolvePayment, today, targetYear);
   var walls = evaluateWalls_(wallRows, annual.totalRevenue, targetYear);
   var hours = aggregateMonthlyHours_(calendarRows, limitRows, yearMonth);
   var weekly = aggregateWeeklyHours_(calendarRows, limitRows, today);
@@ -1991,7 +2452,7 @@ function buildSnapshot_(today, runInfo, options) {
   // 画面を先に出し、表示後の同期で埋める（options.skipForecast）。
   var forecast = options && options.skipForecast
     ? { available: false, pending: true, reason: '読み込み中です', advice: [] }
-    : buildForecast_(calendarRows, limitRows, walls, annual, today);
+    : buildForecast_(calendarRows, limitRows, walls, annual, today, resolvePayment);
 
   var messages = [];
   var tzWarning = timeZoneWarning_();
@@ -2023,6 +2484,8 @@ function buildSnapshot_(today, runInfo, options) {
     targetYear: targetYear,
     yearMonth: yearMonth,
     annual: annual,
+    payments: payments,
+    holidaysAvailable: readStoredHolidays_().available,
     walls: walls,
     hours: hours,
     weekly: weekly,
@@ -2689,6 +3152,26 @@ var SEED_SHIFTS = [];
  */
 var SEED_COMPANY_LIMITS = [];
 
+/**
+ * 会社ごとの給与サイクル（締め日と支給日）
+ *
+ * ここも空のまま公開リポジトリに置いています。会社名は個人情報なので、
+ * 自分の Apps Script プロジェクト側でだけ書いてください。
+ *
+ * 書き方:
+ *   {
+ *     company_name: '〇〇',
+ *     cutoff_day: 20,          // 締め日。31 と書くと月末締め
+ *     pay_month_offset: 1,     // 締め月の何ヶ月後に支給されるか
+ *     pay_day: 10,             // 支給日。31 と書くと月末払い
+ *     shift_rule: '前倒し',    // 支給日が休日のとき '前倒し' | '後ろ倒し' | 'そのまま'
+ *     shift_on_holiday: true,  // 土日だけでなく祝日も休みとして扱うか
+ *     confirmed: true,
+ *     note: '21日〜翌20日の勤務が翌月10日払い（2026-08-30 会社から確認）'
+ *   }
+ */
+var SEED_PAY_CYCLES = [];
+
 /** 同じ勤務を指すかどうかの判定キー */
 function shiftKey_(date, companyName, startTime) {
   return toDateString_(date) + '\t' + String(companyName).trim() + '\t' + toTimeString_(startTime);
@@ -2697,7 +3180,12 @@ function shiftKey_(date, companyName, startTime) {
 /** メニューから呼ぶ本体 */
 function importSeedData() {
   ensureSheets_();
-  if (SEED_MANUAL_INCOME.length === 0 && SEED_SHIFTS.length === 0 && SEED_COMPANY_LIMITS.length === 0) {
+  if (
+    SEED_MANUAL_INCOME.length === 0 &&
+    SEED_SHIFTS.length === 0 &&
+    SEED_COMPANY_LIMITS.length === 0 &&
+    SEED_PAY_CYCLES.length === 0
+  ) {
     showAlert_(
       '登録するデータがありません',
       'SeedData の SEED_MANUAL_INCOME と SEED_SHIFTS に、収入とシフトを書いてから実行してください。'
@@ -2707,6 +3195,7 @@ function importSeedData() {
   var manual = seedManualIncome_();
   var shifts = seedShifts_();
   var limits = seedCompanyLimits_();
+  var cycles = seedPayCycles_();
 
   recalcReconciliations_();
   var snapshot = buildSnapshot_(new Date(), null);
@@ -2718,6 +3207,9 @@ function importSeedData() {
     (shifts.skipped ? ' / ' + shifts.skipped + '件はカレンダー取り込み済みのため見送り' : '') +
     (limits.inserted + limits.updated > 0
       ? '\n勤務先の上限: ' + limits.inserted + '件追加 / ' + limits.updated + '件更新'
+      : '') +
+    (cycles.inserted + cycles.updated > 0
+      ? '\n給与サイクル: ' + cycles.inserted + '件追加 / ' + cycles.updated + '件更新'
       : '');
   writeLog_('seed', '正常', message.replace(/\n/g, ' '));
   showSummaryAlert_('実データを取り込みました\n\n' + message, snapshot);
@@ -2759,6 +3251,27 @@ function seedCompanyLimits_() {
     };
   });
   return upsertRows_(SHEETS.LIMITS, rows, 'company_name');
+}
+
+/** 給与サイクルを登録（勤務先をキーに上書き） */
+function seedPayCycles_() {
+  if (SEED_PAY_CYCLES.length === 0) return { inserted: 0, updated: 0 };
+  var fb = CONFIG.payCycle.fallback;
+  var now = formatDateTime_(new Date());
+  var rows = SEED_PAY_CYCLES.map(function (item) {
+    return {
+      company_name: item.company_name,
+      cutoff_day: item.cutoff_day || fb.cutoffDay,
+      pay_month_offset: item.pay_month_offset === undefined ? fb.payMonthOffset : item.pay_month_offset,
+      pay_day: item.pay_day || fb.payDay,
+      shift_rule: item.shift_rule || fb.shiftRule,
+      shift_on_holiday: item.shift_on_holiday === undefined ? !!fb.shiftOnHoliday : !!item.shift_on_holiday,
+      confirmed: !!item.confirmed,
+      note: item.note || '',
+      updated_at: now
+    };
+  });
+  return upsertRows_(SHEETS.PAYCYCLE, rows, 'company_name');
 }
 
 /** シフトを勤務明細に登録（カレンダーから取り込み済みの勤務は触らない） */
@@ -2898,7 +3411,10 @@ function doGet() {
 function appSyncCalendar() {
   beginExecution_();
   ensureSheets_();
-  prefetchCalendar_(new Date());
+  var today = new Date();
+  // 祝日は支給日の前倒し判定に使う。画面表示では触らず、ここでだけ取り込む
+  refreshHolidays_(today);
+  prefetchCalendar_(today);
   autoImportRecent_();
   return buildAppData_();
 }
@@ -2946,6 +3462,23 @@ function buildAppData_(options) {
       return x.date < y.date ? 1 : x.date > y.date ? -1 : 0;
     })
     .slice(0, 12);
+
+  var payments = (snapshot.payments || []).map(function (p) {
+    return {
+      payDate: p.payDate,
+      companyName: p.companyName,
+      periodFrom: p.periodFrom,
+      periodTo: p.periodTo,
+      days: p.days,
+      hours: p.hours,
+      allowance: p.allowance,
+      amount: p.amount,
+      confirmed: p.confirmed,
+      moved: p.moved,
+      scheduledDate: p.scheduledDate,
+      isPaid: p.isPaid
+    };
+  });
 
   var limits = readTable_(SHEETS.LIMITS).rows.map(function (r) {
     return {
@@ -3017,9 +3550,14 @@ function buildAppData_(options) {
       salaryIncome: a.salaryIncome,
       businessIncome: a.businessIncome,
       miscIncome: a.miscIncome,
-      totalIncome: a.totalIncome
+      totalIncome: a.totalIncome,
+      byPayDate: a.byPayDate,
+      carriedInRevenue: a.carriedInRevenue,
+      carriedOutRevenue: a.carriedOutRevenue
     },
     recentEntries: recent,
+    payments: payments,
+    holidaysAvailable: !!snapshot.holidaysAvailable,
     limits: limits,
     manualEntries: manual,
     reconcileEntries: reconcile,
@@ -3167,6 +3705,7 @@ function onOpen() {
     .addItem('今日の分析をいま実行', 'runTodayFromMenu')
     .addItem('期間を指定して取り込み直す', 'backfillFromMenu')
     .addItem('サマリーだけ再計算', 'refreshSummaryFromMenu')
+    .addItem('祝日を取り込み直す', 'refreshHolidaysFromMenu_')
     .addSeparator()
     .addItem('実データを取り込む（初回のみ）', 'importSeedData')
     .addSeparator()
@@ -3240,6 +3779,8 @@ function runAnalysisForDate_(date) {
  */
 function runAnalysisForRange_(startDate, endDate) {
   ensureSheets_();
+  // 支給日の前倒し判定に使う祝日を、必要なときだけ取り込み直す
+  refreshHolidays_(new Date());
   var run = importDateRange_(startDate, endDate);
   // シートに直接入力された答え合わせもここで拾う（スマホから入力しただけで済むように）
   recalcReconciliations_();
@@ -3272,6 +3813,20 @@ function importDateRange_(startDate, endDate) {
   // 手入力で登録した同じ勤務があれば消す（カレンダーを正とする）
   removeSeededDuplicates_(all.entries);
 
+  // 新しい勤務先の行を先に作っておく（このあと支給日を求めるときに使うため）
+  var companies = all.entries.map(function (e) {
+    return e.company_name;
+  });
+  ensureCompanyLimits_(companies);
+  ensurePayCycles_(companies);
+
+  // 支給日を明細にも残しておく（いつ振り込まれる分かをシート上で見られるように）
+  var resolvePayment = makePaymentResolver_(holidayMap_());
+  all.entries.forEach(function (e) {
+    var payment = resolvePayment(e.company_name, e.date);
+    e.paid_on = payment ? payment.payDate : '';
+  });
+
   upsertRows_(SHEETS.CALENDAR, all.entries, 'id', function (existing, incoming) {
     var merged = {};
     Object.keys(incoming).forEach(function (k) {
@@ -3281,12 +3836,6 @@ function importDateRange_(startDate, endDate) {
     merged.reconciled = toBool_(existing.reconciled);
     return merged;
   });
-
-  ensureCompanyLimits_(
-    all.entries.map(function (e) {
-      return e.company_name;
-    })
-  );
 
   writeLog_(
     'import',
@@ -3317,6 +3866,34 @@ function ensureCompanyLimits_(companyNames) {
     });
   });
   appendRows_(SHEETS.LIMITS, added);
+}
+
+/** 新しい勤務先を 給与サイクル に暫定値で登録する */
+function ensurePayCycles_(companyNames) {
+  var known = {};
+  readTable_(SHEETS.PAYCYCLE).rows.forEach(function (r) {
+    known[String(r.company_name).trim()] = true;
+  });
+  var fb = CONFIG.payCycle.fallback;
+  var now = formatDateTime_(new Date());
+  var added = [];
+  companyNames.forEach(function (name) {
+    var key = String(name).trim();
+    if (!key || known[key]) return;
+    known[key] = true;
+    added.push({
+      company_name: key,
+      cutoff_day: fb.cutoffDay,
+      pay_month_offset: fb.payMonthOffset,
+      pay_day: fb.payDay,
+      shift_rule: fb.shiftRule,
+      shift_on_holiday: !!fb.shiftOnHoliday,
+      confirmed: false,
+      note: '暫定値。締め日と支給日を会社に確認したら書き換える',
+      updated_at: now
+    });
+  });
+  appendRows_(SHEETS.PAYCYCLE, added);
 }
 
 /* ------------------------- メニュー用 ------------------------- */
@@ -3582,6 +4159,112 @@ function runTests() {
   var withAllowance = aggregateAnnual_(allowanceRows, [], 2026);
   check('手当: 年間の収入に含まれる', withAllowance.calendarRevenue, 20200);
   check('手当: 手当だけの合計も出す', withAllowance.allowanceTotal, 1000);
+
+  /* --- 給与サイクル（締め日と支給日） --- */
+  var cycleRegency = {
+    companyName: 'R', cutoffDay: 20, payMonthOffset: 1, payDay: 10,
+    shiftRule: PAY_SHIFT_EARLIER, shiftOnHoliday: true, confirmed: true
+  };
+  var noHolidays = {};
+
+  check('締め日: 20日締めで20日は当月分', cutoffDateFor_('2026-04-20', 20), '2026-04-20');
+  check('締め日: 20日締めで21日は翌月分', cutoffDateFor_('2026-03-21', 20), '2026-04-20');
+  check('締め日: 月末締め（31指定）は月末に丸める', cutoffDateFor_('2026-02-10', 31), '2026-02-28');
+  check('締め日: 月末締めで月末当日は当月分', cutoffDateFor_('2026-04-30', 31), '2026-04-30');
+  check('締め日: 25日締めで26日は翌月分', cutoffDateFor_('2026-12-26', 25), '2027-01-25');
+
+  check('支給日: 締めの翌月10日', scheduledPayDate_('2026-04-20', cycleRegency), '2026-05-10');
+  check('支給日: 月末払い（31指定）は月末に丸める', scheduledPayDate_('2026-02-28', { payMonthOffset: 1, payDay: 31 }), '2026-03-31');
+
+  // 実例: 3/21(土)〜4/20(月) に働いた分が 5/8(金) に支給された
+  var real = resolvePayment_('2026-03-21', cycleRegency, noHolidays);
+  check('実例: 締め期間', [real.periodFrom, real.periodTo], ['2026-03-21', '2026-04-20']);
+  check('実例: 本来の支給日は5/10（日）', real.scheduledDate, '2026-05-10');
+  check('実例: 前倒しで5/8（金）', real.payDate, '2026-05-08');
+  check('実例: ずれたことが分かる', real.moved, true);
+  check('実例: 期間の終わりの日も同じ支給日', resolvePayment_('2026-04-20', cycleRegency, noHolidays).payDate, '2026-05-08');
+  check('実例: 期間の次の日は次の支給日', resolvePayment_('2026-04-21', cycleRegency, noHolidays).payDate, '2026-06-10');
+
+  check('土日: 土曜は休み', isWeekend_('2026-05-09'), true);
+  check('土日: 日曜は休み', isWeekend_('2026-05-10'), true);
+  check('土日: 月曜は休みでない', isWeekend_('2026-05-11'), false);
+
+  check('前倒し: 平日ならそのまま', adjustPayDate_('2026-05-08', PAY_SHIFT_EARLIER, true, {}), '2026-05-08');
+  check('前倒し: 土曜なら金曜', adjustPayDate_('2026-05-09', PAY_SHIFT_EARLIER, true, {}), '2026-05-08');
+  check('前倒し: 日曜なら金曜', adjustPayDate_('2026-05-10', PAY_SHIFT_EARLIER, true, {}), '2026-05-08');
+  check(
+    '前倒し: 平日の祝日なら直前の平日',
+    adjustPayDate_('2026-11-03', PAY_SHIFT_EARLIER, true, { '2026-11-03': '文化の日' }),
+    '2026-11-02'
+  );
+  check(
+    '前倒し: 祝日を見ない設定なら動かさない',
+    adjustPayDate_('2026-11-03', PAY_SHIFT_EARLIER, false, { '2026-11-03': '文化の日' }),
+    '2026-11-03'
+  );
+  check(
+    '前倒し: 連休は抜けるまで戻る',
+    adjustPayDate_('2026-05-05', PAY_SHIFT_EARLIER, true, {
+      '2026-05-03': '憲法記念日', '2026-05-04': 'みどりの日', '2026-05-05': 'こどもの日', '2026-05-06': '休日'
+    }),
+    '2026-05-01'
+  );
+  check('後ろ倒し: 土曜なら月曜', adjustPayDate_('2026-05-09', PAY_SHIFT_LATER, true, {}), '2026-05-11');
+  check('そのまま: 日曜でも動かさない', adjustPayDate_('2026-05-10', PAY_SHIFT_NONE, true, {}), '2026-05-10');
+
+  // 月末締め・翌月15日払い
+  var cycleBeat = {
+    companyName: 'B', cutoffDay: 31, payMonthOffset: 1, payDay: 15,
+    shiftRule: PAY_SHIFT_EARLIER, shiftOnHoliday: true, confirmed: true
+  };
+  var beat = resolvePayment_('2026-08-20', cycleBeat, noHolidays);
+  check('月末締め: 締め期間', [beat.periodFrom, beat.periodTo], ['2026-08-01', '2026-08-31']);
+  check('月末締め: 翌月15日払い', beat.payDate, '2026-09-15');
+
+  // 25日締め・翌月25日払い
+  var cycleK = {
+    companyName: 'K', cutoffDay: 25, payMonthOffset: 1, payDay: 25,
+    shiftRule: PAY_SHIFT_EARLIER, shiftOnHoliday: true, confirmed: true
+  };
+  var k = resolvePayment_('2026-08-26', cycleK, noHolidays);
+  check('25日締め: 26日は翌月の締め', [k.periodFrom, k.periodTo], ['2026-08-26', '2026-09-25']);
+  check('25日締め: その翌月25日払い（10/25は日曜なので前倒し）', k.payDate, '2026-10-23');
+  check('25日締め: 本来の支給日', k.scheduledDate, '2026-10-25');
+
+  // 年をまたぐ支給
+  var yearEnd = resolvePayment_('2026-12-05', cycleBeat, noHolidays);
+  check('年またぎ: 12月の勤務が翌年1月払い', yearEnd.payDate, '2027-01-15');
+
+  check('空欄判定: 0は空欄ではない', [isBlank_(0), isBlank_(''), isBlank_(null), isBlank_(undefined)], [false, true, true, true]);
+
+  // 未登録の勤務先は暫定値
+  var fallback = payCycleFor_({}, '知らない会社');
+  check('未登録: 暫定値を使う', [fallback.cutoffDay, fallback.payDay, fallback.confirmed], [31, 25, false]);
+
+  /* --- 支給日ベースの年間集計 --- */
+  var payRows = [
+    { date: '2026-12-05', company_name: 'B', worked_hours: 8, estimated_amount: 10000, allowance: 0 },
+    { date: '2026-08-20', company_name: 'B', worked_hours: 8, estimated_amount: 20000, allowance: 0 }
+  ];
+  var resolveB = function (name, workDate) {
+    return resolvePayment_(workDate, cycleBeat, noHolidays);
+  };
+  var byPay = aggregateAnnual_(payRows, [], 2026, resolveB);
+  check('支給日ベース: 翌年払いは今年に入れない', byPay.calendarRevenue, 20000);
+  check('支給日ベース: 翌年に回った分を数える', byPay.carriedOutRevenue, 10000);
+  check('支給日ベース: 集計方法が分かる', byPay.byPayDate, true);
+  check('勤務日ベース: 関数を渡さなければ従来どおり', aggregateAnnual_(payRows, [], 2026).calendarRevenue, 30000);
+  var nextYear = aggregateAnnual_(payRows, [], 2027, resolveB);
+  check('支給日ベース: 翌年の収入になる', nextYear.calendarRevenue, 10000);
+  check('支給日ベース: 前年から繰り越した分を数える', nextYear.carriedInRevenue, 10000);
+
+  /* --- 支給日ごとのまとめ --- */
+  var payments = aggregatePayments_(payRows, resolveB, new Date(2026, 8, 30), 2026);
+  check('振込予定: 2026年に振り込まれるのは1件', payments.length, 1);
+  check('振込予定: 支給日と金額', [payments[0].payDate, payments[0].amount], ['2026-09-15', 20000]);
+  check('振込予定: 支給済みか', payments[0].isPaid, true);
+  var future = aggregatePayments_(payRows, resolveB, new Date(2026, 7, 1), 2026);
+  check('振込予定: これからの分は未支給', future[0].isPaid, false);
 
   /* --- 実働時間・推定収入 --- */
   check('実働時間: 9:00-18:00 休憩1h', computeWorkedHours_('09:00', '18:00', 1), 8);

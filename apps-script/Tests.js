@@ -124,6 +124,112 @@ function runTests() {
   check('手当: 年間の収入に含まれる', withAllowance.calendarRevenue, 20200);
   check('手当: 手当だけの合計も出す', withAllowance.allowanceTotal, 1000);
 
+  /* --- 給与サイクル（締め日と支給日） --- */
+  var cycleRegency = {
+    companyName: 'R', cutoffDay: 20, payMonthOffset: 1, payDay: 10,
+    shiftRule: PAY_SHIFT_EARLIER, shiftOnHoliday: true, confirmed: true
+  };
+  var noHolidays = {};
+
+  check('締め日: 20日締めで20日は当月分', cutoffDateFor_('2026-04-20', 20), '2026-04-20');
+  check('締め日: 20日締めで21日は翌月分', cutoffDateFor_('2026-03-21', 20), '2026-04-20');
+  check('締め日: 月末締め（31指定）は月末に丸める', cutoffDateFor_('2026-02-10', 31), '2026-02-28');
+  check('締め日: 月末締めで月末当日は当月分', cutoffDateFor_('2026-04-30', 31), '2026-04-30');
+  check('締め日: 25日締めで26日は翌月分', cutoffDateFor_('2026-12-26', 25), '2027-01-25');
+
+  check('支給日: 締めの翌月10日', scheduledPayDate_('2026-04-20', cycleRegency), '2026-05-10');
+  check('支給日: 月末払い（31指定）は月末に丸める', scheduledPayDate_('2026-02-28', { payMonthOffset: 1, payDay: 31 }), '2026-03-31');
+
+  // 実例: 3/21(土)〜4/20(月) に働いた分が 5/8(金) に支給された
+  var real = resolvePayment_('2026-03-21', cycleRegency, noHolidays);
+  check('実例: 締め期間', [real.periodFrom, real.periodTo], ['2026-03-21', '2026-04-20']);
+  check('実例: 本来の支給日は5/10（日）', real.scheduledDate, '2026-05-10');
+  check('実例: 前倒しで5/8（金）', real.payDate, '2026-05-08');
+  check('実例: ずれたことが分かる', real.moved, true);
+  check('実例: 期間の終わりの日も同じ支給日', resolvePayment_('2026-04-20', cycleRegency, noHolidays).payDate, '2026-05-08');
+  check('実例: 期間の次の日は次の支給日', resolvePayment_('2026-04-21', cycleRegency, noHolidays).payDate, '2026-06-10');
+
+  check('土日: 土曜は休み', isWeekend_('2026-05-09'), true);
+  check('土日: 日曜は休み', isWeekend_('2026-05-10'), true);
+  check('土日: 月曜は休みでない', isWeekend_('2026-05-11'), false);
+
+  check('前倒し: 平日ならそのまま', adjustPayDate_('2026-05-08', PAY_SHIFT_EARLIER, true, {}), '2026-05-08');
+  check('前倒し: 土曜なら金曜', adjustPayDate_('2026-05-09', PAY_SHIFT_EARLIER, true, {}), '2026-05-08');
+  check('前倒し: 日曜なら金曜', adjustPayDate_('2026-05-10', PAY_SHIFT_EARLIER, true, {}), '2026-05-08');
+  check(
+    '前倒し: 平日の祝日なら直前の平日',
+    adjustPayDate_('2026-11-03', PAY_SHIFT_EARLIER, true, { '2026-11-03': '文化の日' }),
+    '2026-11-02'
+  );
+  check(
+    '前倒し: 祝日を見ない設定なら動かさない',
+    adjustPayDate_('2026-11-03', PAY_SHIFT_EARLIER, false, { '2026-11-03': '文化の日' }),
+    '2026-11-03'
+  );
+  check(
+    '前倒し: 連休は抜けるまで戻る',
+    adjustPayDate_('2026-05-05', PAY_SHIFT_EARLIER, true, {
+      '2026-05-03': '憲法記念日', '2026-05-04': 'みどりの日', '2026-05-05': 'こどもの日', '2026-05-06': '休日'
+    }),
+    '2026-05-01'
+  );
+  check('後ろ倒し: 土曜なら月曜', adjustPayDate_('2026-05-09', PAY_SHIFT_LATER, true, {}), '2026-05-11');
+  check('そのまま: 日曜でも動かさない', adjustPayDate_('2026-05-10', PAY_SHIFT_NONE, true, {}), '2026-05-10');
+
+  // 月末締め・翌月15日払い
+  var cycleBeat = {
+    companyName: 'B', cutoffDay: 31, payMonthOffset: 1, payDay: 15,
+    shiftRule: PAY_SHIFT_EARLIER, shiftOnHoliday: true, confirmed: true
+  };
+  var beat = resolvePayment_('2026-08-20', cycleBeat, noHolidays);
+  check('月末締め: 締め期間', [beat.periodFrom, beat.periodTo], ['2026-08-01', '2026-08-31']);
+  check('月末締め: 翌月15日払い', beat.payDate, '2026-09-15');
+
+  // 25日締め・翌月25日払い
+  var cycleK = {
+    companyName: 'K', cutoffDay: 25, payMonthOffset: 1, payDay: 25,
+    shiftRule: PAY_SHIFT_EARLIER, shiftOnHoliday: true, confirmed: true
+  };
+  var k = resolvePayment_('2026-08-26', cycleK, noHolidays);
+  check('25日締め: 26日は翌月の締め', [k.periodFrom, k.periodTo], ['2026-08-26', '2026-09-25']);
+  check('25日締め: その翌月25日払い（10/25は日曜なので前倒し）', k.payDate, '2026-10-23');
+  check('25日締め: 本来の支給日', k.scheduledDate, '2026-10-25');
+
+  // 年をまたぐ支給
+  var yearEnd = resolvePayment_('2026-12-05', cycleBeat, noHolidays);
+  check('年またぎ: 12月の勤務が翌年1月払い', yearEnd.payDate, '2027-01-15');
+
+  check('空欄判定: 0は空欄ではない', [isBlank_(0), isBlank_(''), isBlank_(null), isBlank_(undefined)], [false, true, true, true]);
+
+  // 未登録の勤務先は暫定値
+  var fallback = payCycleFor_({}, '知らない会社');
+  check('未登録: 暫定値を使う', [fallback.cutoffDay, fallback.payDay, fallback.confirmed], [31, 25, false]);
+
+  /* --- 支給日ベースの年間集計 --- */
+  var payRows = [
+    { date: '2026-12-05', company_name: 'B', worked_hours: 8, estimated_amount: 10000, allowance: 0 },
+    { date: '2026-08-20', company_name: 'B', worked_hours: 8, estimated_amount: 20000, allowance: 0 }
+  ];
+  var resolveB = function (name, workDate) {
+    return resolvePayment_(workDate, cycleBeat, noHolidays);
+  };
+  var byPay = aggregateAnnual_(payRows, [], 2026, resolveB);
+  check('支給日ベース: 翌年払いは今年に入れない', byPay.calendarRevenue, 20000);
+  check('支給日ベース: 翌年に回った分を数える', byPay.carriedOutRevenue, 10000);
+  check('支給日ベース: 集計方法が分かる', byPay.byPayDate, true);
+  check('勤務日ベース: 関数を渡さなければ従来どおり', aggregateAnnual_(payRows, [], 2026).calendarRevenue, 30000);
+  var nextYear = aggregateAnnual_(payRows, [], 2027, resolveB);
+  check('支給日ベース: 翌年の収入になる', nextYear.calendarRevenue, 10000);
+  check('支給日ベース: 前年から繰り越した分を数える', nextYear.carriedInRevenue, 10000);
+
+  /* --- 支給日ごとのまとめ --- */
+  var payments = aggregatePayments_(payRows, resolveB, new Date(2026, 8, 30), 2026);
+  check('振込予定: 2026年に振り込まれるのは1件', payments.length, 1);
+  check('振込予定: 支給日と金額', [payments[0].payDate, payments[0].amount], ['2026-09-15', 20000]);
+  check('振込予定: 支給済みか', payments[0].isPaid, true);
+  var future = aggregatePayments_(payRows, resolveB, new Date(2026, 7, 1), 2026);
+  check('振込予定: これからの分は未支給', future[0].isPaid, false);
+
   /* --- 実働時間・推定収入 --- */
   check('実働時間: 9:00-18:00 休憩1h', computeWorkedHours_('09:00', '18:00', 1), 8);
   check('実働時間: 13:00-17:00 休憩0', computeWorkedHours_('13:00', '17:00', 0), 4);

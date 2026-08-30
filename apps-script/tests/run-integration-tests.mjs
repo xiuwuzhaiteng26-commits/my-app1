@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { makeSandbox, apiCalls } from './fake-google.mjs';
+import { makeSandbox, apiCalls, holidayFixture, HOLIDAY_CALENDAR_ID } from './fake-google.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -18,6 +18,8 @@ const files = [
   'Sheets.js',
   'Parser.js',
   'Calc.js',
+  'Holidays.js',
+  'PayCycle.js',
   'CalendarSource.js',
   'Forecast.js',
   'Summary.js',
@@ -808,6 +810,114 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   check('一括取り込み: 置き換わっても合計は同じ', afterImport.reduce((sum, r) => sum + Number(r.estimated_amount), 0), 42000);
   seedRun('importSeedData()');
   check('一括取り込み: 取り込み済みの勤務は上書きしない', seedRun('readTable_(SHEETS.CALENDAR).rows.length'), 5);
+}
+
+/* --- 給与サイクル（締め日と支給日で年収を数える） --- */
+{
+  const pcEnv = makeSandbox(
+    {
+      // 3/21〜4/20 の締め期間。支給は 5/10(日) → 前倒しで 5/8(金)
+      '2026-03-21': [
+        {
+          id: 'pc-1',
+          title: '[リージェンシー社] 09:00-18:00 休憩1h 時給1200円',
+          start: new Date(2026, 2, 21, 9, 0),
+          end: new Date(2026, 2, 21, 18, 0)
+        }
+      ],
+      // 12月の勤務。支給は翌年 → 2026年の壁には入らない
+      '2026-12-05': [
+        {
+          id: 'pc-2',
+          title: '[リージェンシー社] 09:00-18:00 休憩1h 時給1200円',
+          start: new Date(2026, 11, 5, 9, 0),
+          end: new Date(2026, 11, 5, 18, 0)
+        }
+      ]
+    },
+    { [HOLIDAY_CALENDAR_ID]: holidayFixture([2025, 2026, 2027]) }
+  );
+  const pcCtx = vm.createContext(pcEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), pcCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), pcCtx, { filename: file });
+  }
+  const pcRun = (expr) => vm.runInContext(expr, pcCtx);
+
+  pcRun('ensureSheets_()');
+  pcRun(`SEED_PAY_CYCLES = [{
+    company_name: 'リージェンシー社', cutoff_day: 20, pay_month_offset: 1, pay_day: 10,
+    shift_rule: '前倒し', shift_on_holiday: true, confirmed: true, note: '実例'
+  }];
+  seedPayCycles_();`);
+  pcRun('importDateRange_(new Date(2026, 2, 21), new Date(2026, 11, 5))');
+
+  const rows = pcRun('readTable_(SHEETS.CALENDAR).rows');
+  const march = rows.filter((r) => String(r.date) === '2026-03-21')[0];
+  const december = rows.filter((r) => String(r.date) === '2026-12-05')[0];
+  check('給与サイクル: 明細に支給日が入る', String(march.paid_on), '2026-05-08');
+  check('給与サイクル: 12月の勤務は翌年払い', String(december.paid_on), '2027-01-08');
+
+  const snap2026 = pcRun('buildSnapshot_(new Date(2026, 11, 31, 23, 30), null)');
+  check('給与サイクル: 支給日ベースで集計している', snap2026.annual.byPayDate, true);
+  check('給与サイクル: 12月分は2026年の収入に入れない', snap2026.annual.calendarRevenue, 9600);
+  check('給与サイクル: 翌年に回った分が分かる', snap2026.annual.carriedOutRevenue, 9600);
+
+  const payments = snap2026.payments;
+  check('振込予定: 2026年の支給は1回', payments.length, 1);
+  check(
+    '振込予定: 支給日・締め期間・金額',
+    [payments[0].payDate, payments[0].periodFrom, payments[0].periodTo, payments[0].amount],
+    ['2026-05-08', '2026-03-21', '2026-04-20', 9600]
+  );
+  check('振込予定: 休日で前倒しになったことが分かる', [payments[0].moved, payments[0].scheduledDate], [true, '2026-05-10']);
+  check('アプリ: 振込予定を画面に渡す', pcRun('buildAppData_({ skipForecast: true })').payments.length, 1);
+
+  // 新しい勤務先は暫定のサイクルが自動で登録される
+  check(
+    '給与サイクル: 未登録の勤務先も行ができる',
+    pcRun("readTable_(SHEETS.PAYCYCLE).rows.length >= 1"),
+    true
+  );
+}
+
+/* --- 祝日（支給日の前倒し判定） --- */
+{
+  const hEnv = makeSandbox({}, { [HOLIDAY_CALENDAR_ID]: holidayFixture([2025, 2026, 2027]) });
+  const hCtx = vm.createContext(hEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), hCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), hCtx, { filename: file });
+  }
+  const hRun = (expr) => vm.runInContext(expr, hCtx);
+  hRun('ensureSheets_()');
+
+  check('祝日: 取り込む前は空', hRun('readStoredHolidays_().available'), false);
+  apiCalls.reset();
+  hRun('refreshHolidays_(new Date(2026, 7, 30))');
+  check('祝日: 取り込みでカレンダーを1回読む', apiCalls.calendarFetch, 1);
+  check('祝日: 文化の日が入っている', hRun("holidayMap_()['2026-11-03']"), '文化の日');
+
+  // 2回目は取り込み直さない（起動を遅くしないため）
+  apiCalls.reset();
+  hRun('invalidateHolidayCache_(); refreshHolidays_(new Date(2026, 7, 30))');
+  check('祝日: 期限内なら読み直さない', apiCalls.calendarFetch, 0);
+
+  // 11/23（月・勤労感謝の日）払いの会社は、直前の平日 11/20（金）に前倒しされる
+  hRun(`SEED_PAY_CYCLES = [{
+    company_name: '祝日社', cutoff_day: 31, pay_month_offset: 0, pay_day: 23,
+    shift_rule: '前倒し', shift_on_holiday: true, confirmed: true
+  }];
+  seedPayCycles_();`);
+  const resolved = hRun("makePaymentResolver_(holidayMap_())('祝日社', '2026-11-05')");
+  check('祝日: 平日の祝日は直前の平日に前倒し', [resolved.scheduledDate, resolved.payDate], ['2026-11-23', '2026-11-20']);
+
+  // 画面表示（doGet）は祝日の取り込みでカレンダーに触らない
+  apiCalls.reset();
+  hRun('beginExecution_(); doGet()');
+  check('祝日: 画面表示ではカレンダーを読まない', apiCalls.calendarFetch, 0);
 }
 
 /* --- アプリの表示速度（Google API の往復回数） --- */

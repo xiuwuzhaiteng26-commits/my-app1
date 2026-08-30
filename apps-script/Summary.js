@@ -12,7 +12,12 @@ function buildSnapshot_(today, runInfo, options) {
   var wallRows = readTable_(SHEETS.WALLS).rows;
   var reconcileRows = readTable_(SHEETS.RECONCILE).rows;
 
-  var annual = aggregateAnnual_(calendarRows, manualRows, targetYear);
+  // 給与は支給日が属する年の収入として数えるので、勤務先ごとの締め・支給日を先に用意する
+  var holidays = holidayMap_();
+  var resolvePayment = makePaymentResolver_(holidays);
+
+  var annual = aggregateAnnual_(calendarRows, manualRows, targetYear, resolvePayment);
+  var payments = aggregatePayments_(calendarRows, resolvePayment, today, targetYear);
   var walls = evaluateWalls_(wallRows, annual.totalRevenue, targetYear);
   var hours = aggregateMonthlyHours_(calendarRows, limitRows, yearMonth);
   var weekly = aggregateWeeklyHours_(calendarRows, limitRows, today);
@@ -21,7 +26,7 @@ function buildSnapshot_(today, runInfo, options) {
   // 画面を先に出し、表示後の同期で埋める（options.skipForecast）。
   var forecast = options && options.skipForecast
     ? { available: false, pending: true, reason: '読み込み中です', advice: [] }
-    : buildForecast_(calendarRows, limitRows, walls, annual, today);
+    : buildForecast_(calendarRows, limitRows, walls, annual, today, resolvePayment);
 
   var messages = [];
   var tzWarning = timeZoneWarning_();
@@ -53,6 +58,8 @@ function buildSnapshot_(today, runInfo, options) {
     targetYear: targetYear,
     yearMonth: yearMonth,
     annual: annual,
+    payments: payments,
+    holidaysAvailable: readStoredHolidays_().available,
     walls: walls,
     hours: hours,
     weekly: weekly,

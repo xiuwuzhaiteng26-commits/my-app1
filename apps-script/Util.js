@@ -57,6 +57,11 @@ function pad2_(v) {
 }
 
 /** '1,226円' や 1226 を数値へ。数値化できなければ 0 */
+/** 空欄か（0 や false は「空欄ではない」と判定する） */
+function isBlank_(value) {
+  return value === null || value === undefined || String(value).trim() === '';
+}
+
 function toNumber_(value) {
   if (typeof value === 'number') return isFinite(value) ? value : 0;
   var s = String(value == null ? '' : value).replace(/[,\s円]/g, '');

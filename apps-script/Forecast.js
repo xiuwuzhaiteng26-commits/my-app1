@@ -10,7 +10,7 @@
  */
 
 /** 先読みしてアドバイスまで作る */
-function buildForecast_(calendarRows, limitRows, walls, annual, today) {
+function buildForecast_(calendarRows, limitRows, walls, annual, today, resolvePayment) {
   var start = new Date(today.getTime());
   start.setHours(0, 0, 0, 0);
   var end = new Date(start.getTime());
@@ -43,7 +43,7 @@ function buildForecast_(calendarRows, limitRows, walls, annual, today) {
     errors: fetched.errors,
     months: forecastMonths_(calendarRows, planned, limitRows, today),
     consecutive: forecastConsecutive_(calendarRows, planned, limitRows, today),
-    walls: forecastWalls_(walls, annual, planned),
+    walls: forecastWalls_(walls, annual, planned, resolvePayment),
     pace: forecastPace_(calendarRows, annual, walls, today),
     averageWage: averageHourlyWage_(planned.length > 0 ? planned : calendarRows)
   };
@@ -143,8 +143,17 @@ function forecastConsecutive_(calendarRows, planned, limitRows, today) {
 }
 
 /** 予定を全部こなした場合の壁の状況 */
-function forecastWalls_(walls, annual, planned) {
-  var plannedRevenue = sumBy_(planned, 'estimated_amount');
+function forecastWalls_(walls, annual, planned, resolvePayment) {
+  // 壁は支給日が属する年で判定するので、支給が翌年になる予定は今年に足さない
+  var counted = planned;
+  if (resolvePayment && CONFIG.payCycle.useForWalls) {
+    counted = planned.filter(function (e) {
+      var payment = resolvePayment(String(e.company_name || '').trim(), e.date);
+      if (!payment || !payment.payDate) return true;
+      return yearOfDateString_(payment.payDate) === annual.targetYear;
+    });
+  }
+  var plannedRevenue = sumBy_(counted, 'estimated_amount');
   var projected = annual.totalRevenue + plannedRevenue;
   return walls.map(function (w) {
     var remaining = w.amount - projected;

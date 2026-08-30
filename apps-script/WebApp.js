@@ -45,7 +45,10 @@ function doGet() {
 function appSyncCalendar() {
   beginExecution_();
   ensureSheets_();
-  prefetchCalendar_(new Date());
+  var today = new Date();
+  // 祝日は支給日の前倒し判定に使う。画面表示では触らず、ここでだけ取り込む
+  refreshHolidays_(today);
+  prefetchCalendar_(today);
   autoImportRecent_();
   return buildAppData_();
 }
@@ -93,6 +96,23 @@ function buildAppData_(options) {
       return x.date < y.date ? 1 : x.date > y.date ? -1 : 0;
     })
     .slice(0, 12);
+
+  var payments = (snapshot.payments || []).map(function (p) {
+    return {
+      payDate: p.payDate,
+      companyName: p.companyName,
+      periodFrom: p.periodFrom,
+      periodTo: p.periodTo,
+      days: p.days,
+      hours: p.hours,
+      allowance: p.allowance,
+      amount: p.amount,
+      confirmed: p.confirmed,
+      moved: p.moved,
+      scheduledDate: p.scheduledDate,
+      isPaid: p.isPaid
+    };
+  });
 
   var limits = readTable_(SHEETS.LIMITS).rows.map(function (r) {
     return {
@@ -164,9 +184,14 @@ function buildAppData_(options) {
       salaryIncome: a.salaryIncome,
       businessIncome: a.businessIncome,
       miscIncome: a.miscIncome,
-      totalIncome: a.totalIncome
+      totalIncome: a.totalIncome,
+      byPayDate: a.byPayDate,
+      carriedInRevenue: a.carriedInRevenue,
+      carriedOutRevenue: a.carriedOutRevenue
     },
     recentEntries: recent,
+    payments: payments,
+    holidaysAvailable: !!snapshot.holidaysAvailable,
     limits: limits,
     manualEntries: manual,
     reconcileEntries: reconcile,

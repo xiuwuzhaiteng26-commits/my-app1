@@ -20,6 +20,8 @@ export const SOURCE_FILES = [
   'Sheets.js',
   'Parser.js',
   'Calc.js',
+  'Holidays.js',
+  'PayCycle.js',
   'CalendarSource.js',
   'Forecast.js',
   'Summary.js',

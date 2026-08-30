@@ -59,8 +59,12 @@ function computeSalaryDeduction_(salaryRevenue) {
 /**
  * 年間の収入・所得を集計する。
  * 給与所得分（カレンダー由来 + 手入力の給与所得）と事業所得分・雑所得分を分けて管理する。
+ *
+ * 給与は「支給日」が属する年の収入として数える（所得税基本通達36-9）。
+ * resolvePayment(勤務先, 勤務日) が支給日を返せばそれを使い、
+ * 返せなければ勤務日で数える（給与サイクル未設定のときの保険）。
  */
-function aggregateAnnual_(calendarRows, manualRows, targetYear) {
+function aggregateAnnual_(calendarRows, manualRows, targetYear, resolvePayment) {
   var salaryRevenue = 0;
   var calendarRevenue = 0;
   var allowanceTotal = 0;
@@ -68,10 +72,24 @@ function aggregateAnnual_(calendarRows, manualRows, targetYear) {
   var business = { revenue: 0, expenses: 0 };
   var misc = { revenue: 0, expenses: 0 };
   var warnings = [];
+  var usePayDate = !!resolvePayment && CONFIG.payCycle.useForWalls;
+  var carriedIn = 0;
+  var carriedOut = 0;
 
   calendarRows.forEach(function (r) {
-    var year = yearOfDateString_(toDateString_(r.date));
-    if (year !== targetYear) return;
+    var workDate = toDateString_(r.date);
+    var workYear = yearOfDateString_(workDate);
+    var year = workYear;
+    if (usePayDate) {
+      var payment = resolvePayment(String(r.company_name || '').trim(), workDate);
+      if (payment && payment.payDate) year = yearOfDateString_(payment.payDate);
+    }
+    if (year !== targetYear) {
+      // 年をまたいだ分を、あとで説明できるように数えておく
+      if (workYear === targetYear) carriedOut += toNumber_(r.estimated_amount);
+      return;
+    }
+    if (workYear !== targetYear) carriedIn += toNumber_(r.estimated_amount);
     calendarRevenue += toNumber_(r.estimated_amount);
     allowanceTotal += toNumber_(r.allowance);
   });
@@ -115,6 +133,12 @@ function aggregateAnnual_(calendarRows, manualRows, targetYear) {
     targetYear: targetYear,
     calendarRevenue: calendarRevenue,
     allowanceTotal: allowanceTotal,
+    /** 支給日ベースで集計したか */
+    byPayDate: usePayDate,
+    /** 前年に働いて今年支給された分 */
+    carriedInRevenue: carriedIn,
+    /** 今年働いて翌年に支給される分 */
+    carriedOutRevenue: carriedOut,
     manualSalaryRevenue: manualSalaryRevenue,
     salaryRevenue: salaryRevenue,
     businessRevenue: business.revenue,

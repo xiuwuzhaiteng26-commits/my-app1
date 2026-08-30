@@ -12,6 +12,7 @@ function onOpen() {
     .addItem('今日の分析をいま実行', 'runTodayFromMenu')
     .addItem('期間を指定して取り込み直す', 'backfillFromMenu')
     .addItem('サマリーだけ再計算', 'refreshSummaryFromMenu')
+    .addItem('祝日を取り込み直す', 'refreshHolidaysFromMenu_')
     .addSeparator()
     .addItem('実データを取り込む（初回のみ）', 'importSeedData')
     .addSeparator()
@@ -85,6 +86,8 @@ function runAnalysisForDate_(date) {
  */
 function runAnalysisForRange_(startDate, endDate) {
   ensureSheets_();
+  // 支給日の前倒し判定に使う祝日を、必要なときだけ取り込み直す
+  refreshHolidays_(new Date());
   var run = importDateRange_(startDate, endDate);
   // シートに直接入力された答え合わせもここで拾う（スマホから入力しただけで済むように）
   recalcReconciliations_();
@@ -117,6 +120,20 @@ function importDateRange_(startDate, endDate) {
   // 手入力で登録した同じ勤務があれば消す（カレンダーを正とする）
   removeSeededDuplicates_(all.entries);
 
+  // 新しい勤務先の行を先に作っておく（このあと支給日を求めるときに使うため）
+  var companies = all.entries.map(function (e) {
+    return e.company_name;
+  });
+  ensureCompanyLimits_(companies);
+  ensurePayCycles_(companies);
+
+  // 支給日を明細にも残しておく（いつ振り込まれる分かをシート上で見られるように）
+  var resolvePayment = makePaymentResolver_(holidayMap_());
+  all.entries.forEach(function (e) {
+    var payment = resolvePayment(e.company_name, e.date);
+    e.paid_on = payment ? payment.payDate : '';
+  });
+
   upsertRows_(SHEETS.CALENDAR, all.entries, 'id', function (existing, incoming) {
     var merged = {};
     Object.keys(incoming).forEach(function (k) {
@@ -126,12 +143,6 @@ function importDateRange_(startDate, endDate) {
     merged.reconciled = toBool_(existing.reconciled);
     return merged;
   });
-
-  ensureCompanyLimits_(
-    all.entries.map(function (e) {
-      return e.company_name;
-    })
-  );
 
   writeLog_(
     'import',
@@ -162,6 +173,34 @@ function ensureCompanyLimits_(companyNames) {
     });
   });
   appendRows_(SHEETS.LIMITS, added);
+}
+
+/** 新しい勤務先を 給与サイクル に暫定値で登録する */
+function ensurePayCycles_(companyNames) {
+  var known = {};
+  readTable_(SHEETS.PAYCYCLE).rows.forEach(function (r) {
+    known[String(r.company_name).trim()] = true;
+  });
+  var fb = CONFIG.payCycle.fallback;
+  var now = formatDateTime_(new Date());
+  var added = [];
+  companyNames.forEach(function (name) {
+    var key = String(name).trim();
+    if (!key || known[key]) return;
+    known[key] = true;
+    added.push({
+      company_name: key,
+      cutoff_day: fb.cutoffDay,
+      pay_month_offset: fb.payMonthOffset,
+      pay_day: fb.payDay,
+      shift_rule: fb.shiftRule,
+      shift_on_holiday: !!fb.shiftOnHoliday,
+      confirmed: false,
+      note: '暫定値。締め日と支給日を会社に確認したら書き換える',
+      updated_at: now
+    });
+  });
+  appendRows_(SHEETS.PAYCYCLE, added);
 }
 
 /* ------------------------- メニュー用 ------------------------- */
