@@ -25,8 +25,11 @@ function doGet() {
   }
   // </script> でタグを閉じられないように < をエスケープしてから埋め込む
   template.bootstrapJson = JSON.stringify(payload).replace(/</g, '\\u003c');
-  // 起動画面のスタートボタンで鳴らすエンジン音（base64なのでそのまま埋めて安全）
+  // 起動画面のスタートボタンで鳴らすエンジン音と、
+  // 開いている間ずっと流すアイドリング音（base64なのでそのまま埋めて安全）
   template.engineSound = engineSoundDataUri_();
+  template.idleSound = idleSoundDataUri_();
+  template.idleLoopSeconds = IDLE_SOUND_LOOP_SECONDS;
 
   // addMetaTag で指定できるのは viewport / mobile-web-app-capable /
   // apple-mobile-web-app-capable / google-site-verification の4つだけ。

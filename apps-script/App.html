@@ -115,6 +115,13 @@
         box-shadow: 0 1px 0 rgba(255,255,255,.14) inset;
       }
       .icon-btn:active { transform: scale(.96); }
+      /* エンジン音の入切。かかっているときはオレンジに光らせる */
+      .engine-btn {
+        padding: 7px 11px; font-size: 11.5px;
+        color: var(--accent); border-color: rgba(240,130,30,.45);
+        text-shadow: 0 0 10px rgba(240,130,30,.5);
+      }
+      .engine-btn.off { color: var(--faint); border-color: var(--line); text-shadow: none; }
 
       main { padding: 14px 14px 0; max-width: 620px; margin: 0 auto; }
       .view { display: none; animation: fade .22s ease; }
@@ -161,7 +168,14 @@
       .hero .label { font-size: 12px; opacity: .82; font-weight: 600; letter-spacing: .04em; }
       .hero .amount { font-size: 34px; font-weight: 800; letter-spacing: -.025em; line-height: 1.15; margin-top: 2px; }
       .hero .sub { font-size: 12px; opacity: .82; margin-top: 3px; }
-      .hero .split { display: flex; gap: 10px; margin-top: 16px; }
+      .hero .split { margin-top: 16px; }
+      .split { display: flex; gap: 9px; }
+      .split .chip {
+        flex: 1; min-width: 0; padding: 10px 11px; border-radius: 11px;
+        background: #101116; border: 1px solid var(--line);
+      }
+      .split .chip .k { font-size: 10.5px; color: var(--muted); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .split .chip .v { font-size: 15px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
       .hero .chip {
         flex: 1; background: rgba(0,0,0,.24); border: 1px solid rgba(255,255,255,.14);
         border-radius: 12px; padding: 9px 11px; min-width: 0;
@@ -296,6 +310,97 @@
       }
       .estimate .k { font-size: 11.5px; color: var(--muted); font-weight: 600; }
       .estimate .v { font-size: 25px; font-weight: 780; letter-spacing: -.02em; margin-top: 1px; }
+
+      /* ---------- スピードメーター ---------- */
+      .gauge { margin-bottom: 12px; }
+      /* メッキのベゼルに囲まれた黒い文字盤 */
+      .gauge-face {
+        position: relative;
+        border-radius: 22px;
+        padding: 16px 14px 14px;
+        background:
+          radial-gradient(115% 85% at 50% 6%, #23252c 0%, #101116 62%, #08090b 100%);
+        border: 1px solid #000;
+        box-shadow:
+          0 0 0 3px var(--chrome-4),
+          0 0 0 4px var(--chrome-2),
+          0 0 0 6px #16171b,
+          var(--shadow-lg),
+          inset 0 2px 10px rgba(255, 255, 255, .07);
+      }
+      .gauge-face svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+      /* 目盛りの帯 */
+      .g-band { fill: none; stroke-width: 5; stroke-linecap: butt; opacity: .5; }
+      .g-ok { stroke: var(--ok-bar); }
+      .g-warn { stroke: var(--warn-bar); }
+      .g-alert { stroke: var(--alert-bar); }
+
+      /* 目盛り。オレンジに淡く光らせる */
+      .g-tick { stroke: var(--accent); stroke-width: 1.6; opacity: .55; }
+      .g-major { stroke-width: 3.2; opacity: 1; }
+      .g-num {
+        fill: var(--accent); font-size: 19px; font-weight: 800;
+        text-anchor: middle; dominant-baseline: middle;
+        font-family: 'Helvetica Neue', Arial, sans-serif;
+      }
+      .g-unit {
+        fill: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .18em;
+        text-anchor: middle; dominant-baseline: middle;
+      }
+      /* 壁の位置に立てる印 */
+      .g-wall { stroke: var(--alert); stroke-width: 2.4; opacity: .9; }
+
+      /* 針 */
+      .g-needle {
+        stroke: #fff3e2; stroke-width: 5; stroke-linecap: round;
+        filter: drop-shadow(0 0 7px rgba(255, 190, 120, .75));
+      }
+      /* 起動時に0から現在値まで振れる（実車の針の動きに合わせている） */
+      .g-needle-wrap {
+        transform-origin: 160px 168px;
+        animation: sweep 1s cubic-bezier(.18, .9, .25, 1) both;
+      }
+      @keyframes sweep {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(var(--to)); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .g-needle-wrap { animation: none; transform: rotate(var(--to)); }
+      }
+      .g-hub { fill: var(--chrome-3); stroke: #0a0a0c; stroke-width: 1.5; }
+      .g-hub2 { fill: #17181c; }
+
+      /* 計器の警告灯 */
+      .gauge-face .lamps {
+        position: absolute; left: 50%; transform: translateX(-50%);
+        bottom: 62px; display: flex; gap: 42px;
+      }
+      .lamps .lamp {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #2a2b30; box-shadow: inset 0 1px 2px rgba(0,0,0,.8);
+      }
+      .lamps .lamp.on { background: var(--warn); box-shadow: 0 0 10px var(--warn); }
+      .lamps .lamp.on.alert { background: var(--alert); box-shadow: 0 0 10px var(--alert); }
+
+      /* 走行距離計ふうの液晶 */
+      .odo {
+        display: flex; align-items: center; justify-content: center; gap: 10px;
+        margin: 4px auto 0; width: fit-content; max-width: 100%;
+        padding: 6px 14px; border-radius: 5px;
+        background: #1a1305;
+        border: 1px solid #000;
+        box-shadow: inset 0 2px 6px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06);
+      }
+      .odo-k { font-size: 10px; color: #a4711d; font-weight: 700; letter-spacing: .12em; }
+      .odo-v {
+        font-size: 20px; font-weight: 800; letter-spacing: .06em;
+        color: #ffb03a; text-shadow: 0 0 9px rgba(255, 150, 30, .6);
+        font-variant-numeric: tabular-nums;
+        font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+      }
+      .gauge-note { text-align: center; font-size: 13px; color: var(--muted); margin-top: 11px; }
+      .gauge-note b { color: var(--text); font-size: 15px; }
 
       /* ---------- 起動画面（イグニッション） ---------- */
       #ignition {
@@ -433,6 +538,7 @@
       <div class="hint" id="ignition-hint">ボタンを押すとエンジン音が鳴ります。<br />音を出したくないときは下から消せます。</div>
       <button class="mute" id="mute-toggle" type="button">音を消す</button>
       <audio id="engine" preload="auto" src="<?!= engineSound ?>"></audio>
+      <audio id="idle" preload="auto" loop src="<?!= idleSound ?>"></audio>
     </div>
 
     <header>
@@ -440,6 +546,7 @@
         <h1>Income Wall<span class="jp">年収の壁・労働時間管理</span></h1>
         <span class="updated" id="updated"><span class="spin"></span>読み込み中</span>
       </div>
+      <button class="icon-btn engine-btn" id="engine-toggle" type="button" aria-label="エンジン音の入切">■</button>
       <button class="icon-btn" id="reload">更新</button>
     </header>
 
@@ -556,26 +663,142 @@
         return '<span class="badge s-' + esc(status) + '">' + esc(status) + '</span>';
       }
 
+      /* ---------- スピードメーター ---------- */
+      /**
+       * 年間収入を、バイクのスピードメーターの形で描く。
+       *
+       * 円のままだと画面の高さを取りすぎるので、165度から375度までの
+       * 210度の弧にしている（真上が中央）。目盛りは20万円ごと、
+       * 帯の色は「最初の壁まで＝緑」「次の壁まで＝橙」「その先＝赤」。
+       */
+      var GAUGE = { cx: 160, cy: 168, r: 128, start: 165, sweep: 210 };
+
+      function gaugePoint(ratio, radius) {
+        var a = ((GAUGE.start + GAUGE.sweep * ratio) * Math.PI) / 180;
+        return [GAUGE.cx + radius * Math.cos(a), GAUGE.cy + radius * Math.sin(a)];
+      }
+
+      function gaugeArc(fromRatio, toRatio, radius) {
+        var p1 = gaugePoint(fromRatio, radius);
+        var p2 = gaugePoint(toRatio, radius);
+        var large = GAUGE.sweep * (toRatio - fromRatio) > 180 ? 1 : 0;
+        return 'M' + round1(p1[0]) + ' ' + round1(p1[1]) +
+          'A' + radius + ' ' + radius + ' 0 ' + large + ' 1 ' + round1(p2[0]) + ' ' + round1(p2[1]);
+      }
+
+      function round1(n) { return Math.round(n * 10) / 10; }
+
+      /** メーターの上限（一番大きい壁の少し先。20万円単位で切り上げ） */
+      function gaugeMax(walls, revenue) {
+        var top = 0;
+        (walls || []).forEach(function (w) { if (w.amount > top) top = w.amount; });
+        if (!top) top = 1500000;
+        var needed = Math.max(top * 1.2, revenue * 1.1);
+        return Math.ceil(needed / 200000) * 200000;
+      }
+
+      function speedometer(d) {
+        var walls = (d.walls || []).slice().sort(function (a, b) { return a.amount - b.amount; });
+        var revenue = Number(d.annual.totalRevenue) || 0;
+        var max = gaugeMax(walls, revenue);
+        var at = function (amount) { return Math.max(0, Math.min(1, amount / max)); };
+
+        // 帯（緑→橙→赤）。壁の位置で色が変わる
+        var firstWall = walls.length ? walls[0].amount : max;
+        var lastWall = walls.length ? walls[walls.length - 1].amount : max;
+        var bands =
+          '<path class="g-band g-ok" d="' + gaugeArc(0, at(firstWall), GAUGE.r) + '" />' +
+          (lastWall > firstWall
+            ? '<path class="g-band g-warn" d="' + gaugeArc(at(firstWall), at(lastWall), GAUGE.r) + '" />'
+            : '') +
+          (at(lastWall) < 1
+            ? '<path class="g-band g-alert" d="' + gaugeArc(at(lastWall), 1, GAUGE.r) + '" />'
+            : '');
+
+        // 目盛り。20万円ごとに数字、5万円ごとに小さい目盛り
+        var ticks = '';
+        var labels = '';
+        for (var amount = 0; amount <= max; amount += 50000) {
+          var isMajor = amount % 200000 === 0;
+          var t = at(amount);
+          var outer = gaugePoint(t, GAUGE.r - 8);
+          var inner = gaugePoint(t, GAUGE.r - (isMajor ? 24 : 16));
+          ticks +=
+            '<line class="g-tick' + (isMajor ? ' g-major' : '') + '" x1="' + round1(outer[0]) + '" y1="' + round1(outer[1]) +
+            '" x2="' + round1(inner[0]) + '" y2="' + round1(inner[1]) + '" />';
+          if (isMajor) {
+            var lp = gaugePoint(t, GAUGE.r - 43);
+            labels +=
+              '<text class="g-num" x="' + round1(lp[0]) + '" y="' + round1(lp[1]) + '">' +
+              Math.round(amount / 10000) + '</text>';
+          }
+        }
+
+        // 壁の位置に赤い印を立てる
+        var marks = '';
+        walls.forEach(function (w) {
+          var t = at(w.amount);
+          var a = gaugePoint(t, GAUGE.r + 2);
+          var b = gaugePoint(t, GAUGE.r - 30);
+          marks +=
+            '<line class="g-wall" x1="' + round1(a[0]) + '" y1="' + round1(a[1]) +
+            '" x2="' + round1(b[0]) + '" y2="' + round1(b[1]) + '" />';
+        });
+
+        // 針。0の位置で描いて回転させる（起動時に0から振れるようにするため）
+        var t = at(revenue);
+        var tip = gaugePoint(0, GAUGE.r - 26);
+        var tail = gaugePoint(0, -14);
+        var needle =
+          '<g class="g-needle-wrap" style="--to:' + round1(GAUGE.sweep * t) + 'deg">' +
+          '<line class="g-needle" x1="' + round1(tail[0]) + '" y1="' + round1(tail[1]) +
+          '" x2="' + round1(tip[0]) + '" y2="' + round1(tip[1]) + '" />' +
+          '</g>' +
+          '<circle class="g-hub" cx="' + GAUGE.cx + '" cy="' + GAUGE.cy + '" r="13" />' +
+          '<circle class="g-hub2" cx="' + GAUGE.cx + '" cy="' + GAUGE.cy + '" r="6" />';
+
+        var nearest = walls.slice().sort(function (a, b) { return a.remaining - b.remaining; })[0];
+        var lamp = nearest ? nearest.status : '正常';
+
+        return (
+          '<div class="gauge">' +
+          '<div class="gauge-face">' +
+          '<svg viewBox="0 30 320 178" role="img" aria-label="' + esc(d.targetYear + '年の収入 ' + yen(revenue)) + '">' +
+          bands + ticks + marks + labels +
+          '<text class="g-unit" x="' + GAUGE.cx + '" y="' + (GAUGE.cy + 30) + '">万円</text>' +
+          needle +
+          '</svg>' +
+          '<div class="lamps">' +
+          '<span class="lamp' + (lamp !== '正常' ? ' on' : '') + '"></span>' +
+          '<span class="lamp' + (lamp === '警告' ? ' on alert' : '') + '"></span>' +
+          '</div>' +
+          '<div class="odo">' +
+          '<span class="odo-k">' + d.targetYear + '</span>' +
+          '<span class="odo-v">' + yen(revenue) + '</span>' +
+          '</div>' +
+          '</div>' +
+          (nearest
+            ? '<div class="gauge-note">' + esc(nearest.name) + 'まで あと <b>' +
+              (nearest.remaining < 0 ? yen(-nearest.remaining) + ' 超過' : yen(nearest.remaining)) + '</b></div>'
+            : '') +
+          '</div>'
+        );
+      }
+
       /* ---------- ホーム ---------- */
       function renderHome() {
         var d = DATA;
         var html = '';
 
-        // 一番近い壁（残りが少ない順）をヒーローに出す
-        var nearest = (d.walls || []).slice().sort(function (a, b) { return a.remaining - b.remaining; })[0];
-        html +=
-          '<div class="hero">' +
-          '<div class="label">' + d.targetYear + '年の収入（額面）</div>' +
-          '<div class="amount">' + yen(d.annual.totalRevenue) + '</div>' +
-          (nearest
-            ? '<div class="sub">' + esc(nearest.name) + 'まで あと ' +
-              (nearest.remaining < 0 ? yen(-nearest.remaining) + ' 超過' : yen(nearest.remaining)) + '</div>'
-            : '') +
+        html += speedometer(d);
+        html += card(
+          d.targetYear + '年の収入（額面）の内訳',
           '<div class="split">' +
-          '<div class="chip"><div class="k">給与</div><div class="v">' + yen(d.annual.salaryRevenue) + '</div></div>' +
-          '<div class="chip"><div class="k">事業</div><div class="v">' + yen(d.annual.businessRevenue) + '</div></div>' +
-          '<div class="chip"><div class="k">雑</div><div class="v">' + yen(d.annual.miscRevenue) + '</div></div>' +
-          '</div></div>';
+            '<div class="chip"><div class="k">給与</div><div class="v">' + yen(d.annual.salaryRevenue) + '</div></div>' +
+            '<div class="chip"><div class="k">事業</div><div class="v">' + yen(d.annual.businessRevenue) + '</div></div>' +
+            '<div class="chip"><div class="k">雑</div><div class="v">' + yen(d.annual.miscRevenue) + '</div></div>' +
+            '</div>'
+        );
 
         var wallsHtml = '';
         (d.walls || []).forEach(function (w) {
@@ -1113,10 +1336,12 @@
 
       el('reload').addEventListener('click', function () { syncCalendar(true); });
 
-      /* ---------- 起動画面（イグニッション） ---------- */
+      /* ---------- 起動画面とエンジン音 ---------- */
       // ブラウザは利用者が操作するまで音を鳴らせない決まりなので、
-      // スタートボタンを押した流れの中で再生する。
+      // スタートボタンを押した流れの中で再生を始める。
       var SOUND_KEY = 'engineSound';
+      var IDLE_LOOP_SECONDS = Number('<?!= idleLoopSeconds ?>') || 1.65;
+
       function soundEnabled() {
         try { return localStorage.getItem(SOUND_KEY) !== 'off'; } catch (e) { return true; }
       }
@@ -1124,46 +1349,237 @@
         try { localStorage.setItem(SOUND_KEY, on ? 'on' : 'off'); } catch (e) { /* 保存できなくても動く */ }
       }
 
+      /**
+       * エンジン音の再生。
+       *
+       * アイドリング音は開いている間ずっと繰り返すが、mp3 は符号化の都合で
+       * 前後に無音が入るため <audio loop> だと1回転ごとに途切れる。
+       * Web Audio API で読み込み、無音を除いた区間だけを繰り返すことで
+       * 継ぎ目を無くしている。Web Audio が使えない場合は <audio loop> に戻す。
+       */
+      var Engine = (function () {
+        var ctx = null;
+        var idleSource = null;
+        var idleGain = null;
+        var idleBuffer = null;
+        var running = false;
+        var startEl = el('engine');
+        var idleEl = el('idle');
+
+        function audioContext() {
+          if (ctx) return ctx;
+          var Ctor = window.AudioContext || window.webkitAudioContext;
+          if (!Ctor) return null;
+          try { ctx = new Ctor(); } catch (e) { ctx = null; }
+          return ctx;
+        }
+
+        function decodeIdle() {
+          // 2回目以降は読み込み済みのものを返す（null を返すと繰り返しが途切れる方に落ちる）
+          if (idleBuffer) return Promise.resolve(idleBuffer);
+          var context = audioContext();
+          if (!context || !idleEl) return Promise.resolve(null);
+          var src = idleEl.getAttribute('src') || '';
+          var base64 = src.slice(src.indexOf(',') + 1);
+          var binary;
+          try { binary = atob(base64); } catch (e) { return Promise.resolve(null); }
+          var bytes = new Uint8Array(binary.length);
+          for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          return new Promise(function (resolve) {
+            var done = function (buffer) { idleBuffer = buffer; resolve(buffer); };
+            var fail = function () { resolve(null); };
+            try {
+              var ret = context.decodeAudioData(bytes.buffer, done, fail);
+              if (ret && ret.then) ret.then(done, fail);
+            } catch (e) { fail(); }
+          });
+        }
+
+        /** mp3 の先頭に無音が残っている場合があるので、音が始まる位置を探す */
+        function firstSoundAt(buffer) {
+          var data = buffer.getChannelData(0);
+          var limit = Math.min(data.length, Math.floor(buffer.sampleRate * 0.2));
+          for (var i = 0; i < limit; i++) {
+            if (Math.abs(data[i]) > 0.003) return i / buffer.sampleRate;
+          }
+          return 0;
+        }
+
+        function startIdleWebAudio(buffer, at) {
+          var context = audioContext();
+          if (!context || !buffer) return false;
+          var from = firstSoundAt(buffer);
+          var source = context.createBufferSource();
+          source.buffer = buffer;
+          source.loop = true;
+          source.loopStart = from;
+          source.loopEnd = Math.min(buffer.duration, from + IDLE_LOOP_SECONDS);
+
+          var gain = context.createGain();
+          gain.gain.setValueAtTime(0, at);
+          gain.gain.linearRampToValueAtTime(0.32, at + 0.5);
+          source.connect(gain);
+          gain.connect(context.destination);
+          source.start(at, from);
+
+          idleSource = source;
+          idleGain = gain;
+          return true;
+        }
+
+        function startIdleFallback() {
+          if (!idleEl) return;
+          try {
+            idleEl.volume = 0.32;
+            idleEl.currentTime = 0;
+            var p = idleEl.play();
+            if (p && p.catch) p.catch(function () {});
+          } catch (e) { /* 鳴らせなくても画面は動く */ }
+        }
+
+        function stopIdle() {
+          var context = ctx;
+          if (idleSource && context) {
+            try {
+              var now = context.currentTime;
+              idleGain.gain.cancelScheduledValues(now);
+              idleGain.gain.setValueAtTime(idleGain.gain.value, now);
+              idleGain.gain.linearRampToValueAtTime(0, now + 0.25);
+              idleSource.stop(now + 0.3);
+            } catch (e) { /* すでに止まっていることがある */ }
+          }
+          idleSource = null;
+          idleGain = null;
+          if (idleEl) { try { idleEl.pause(); } catch (e) { /* 無視 */ } }
+        }
+
+        return {
+          get running() { return running; },
+
+          /** スタートボタンから呼ぶ。始動音を鳴らし、続けてアイドリングに移る */
+          start: function () {
+            if (!soundEnabled()) return 0;
+            running = true;
+            var context = audioContext();
+            if (context && context.state === 'suspended') {
+              try { context.resume(); } catch (e) { /* 無視 */ }
+            }
+
+            var startedAt = Date.now();
+            var duration = 4.3;
+            if (startEl) {
+              try {
+                startEl.currentTime = 0;
+                var p = startEl.play();
+                if (p && p.catch) p.catch(function () {});
+                if (startEl.duration) duration = startEl.duration;
+              } catch (e) { /* 鳴らせなくても進む */ }
+            }
+
+            // 始動音の終わり際にアイドリングを重ねる（途切れて聞こえないように）
+            var overlap = 0.6;
+            decodeIdle().then(function (buffer) {
+              if (!running) return;
+              var elapsed = (Date.now() - startedAt) / 1000;
+              var wait = Math.max(0, duration - overlap - elapsed);
+              if (buffer && context) {
+                startIdleWebAudio(buffer, context.currentTime + wait);
+              } else {
+                setTimeout(function () { if (running) startIdleFallback(); }, wait * 1000);
+              }
+            });
+            return duration;
+          },
+
+          stop: function () {
+            running = false;
+            stopIdle();
+            if (startEl) { try { startEl.pause(); } catch (e) { /* 無視 */ } }
+          },
+
+          /** 画面を離れたときは黙らせ、戻ってきたら鳴らし直す */
+          pause: function () {
+            if (!running) return;
+            stopIdle();
+          },
+          resume: function () {
+            if (!running || idleSource || !soundEnabled()) return;
+            var context = audioContext();
+            decodeIdle().then(function (buffer) {
+              if (!running) return;
+              if (buffer && context) startIdleWebAudio(buffer, context.currentTime);
+              else startIdleFallback();
+            });
+          }
+        };
+      })();
+
+      function paintEngineButton() {
+        var btn = el('engine-toggle');
+        if (!btn) return;
+        var on = soundEnabled();
+        btn.textContent = on ? '🏍 ON' : '🏍 OFF';
+        btn.classList.toggle('off', !on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+
       function enterApp() {
         var ignition = el('ignition');
         if (!ignition || ignition.classList.contains('gone')) return;
         ignition.classList.add('gone');
-        // アニメーションが終わってから表示から外す
         setTimeout(function () { ignition.style.display = 'none'; }, 600);
       }
 
       (function setupIgnition() {
         var starter = el('starter');
         var muteBtn = el('mute-toggle');
-        var audio = el('engine');
         if (!starter) return;
 
         function paintMute() {
           muteBtn.textContent = soundEnabled() ? '音を消す' : '音を出す';
         }
         paintMute();
+        paintEngineButton();
+
         muteBtn.addEventListener('click', function (event) {
           event.stopPropagation();
           setSoundEnabled(!soundEnabled());
           paintMute();
+          paintEngineButton();
         });
 
         starter.addEventListener('click', function () {
           starter.classList.add('cranking');
-          var wait = 320;
-          if (soundEnabled() && audio) {
-            try {
-              audio.currentTime = 0;
-              var played = audio.play();
-              if (played && played.catch) played.catch(function () { /* 鳴らせなくても進む */ });
-              // エンジンがかかる音の途中で画面へ入ると気持ちがよい
-              wait = 900;
-            } catch (e) { /* 鳴らせなくても進む */ }
-          }
+          Engine.start();
+          // エンジンがかかりだしてから画面に入ると気持ちがよい
+          var wait = soundEnabled() ? 900 : 320;
           setTimeout(function () {
             starter.classList.remove('cranking');
             enterApp();
           }, wait);
+        });
+
+        var engineBtn = el('engine-toggle');
+        if (engineBtn) {
+          engineBtn.addEventListener('click', function () {
+            var on = !soundEnabled();
+            setSoundEnabled(on);
+            paintEngineButton();
+            paintMute();
+            if (on) {
+              // 押した操作の中なので、ここから鳴らし始められる
+              if (Engine.running) Engine.resume();
+              else Engine.start();
+            } else {
+              Engine.stop();
+            }
+          });
+        }
+
+        // 他のアプリに切り替えている間は黙らせる
+        document.addEventListener('visibilitychange', function () {
+          if (document.hidden) Engine.pause();
+          else Engine.resume();
         });
       })();
 
