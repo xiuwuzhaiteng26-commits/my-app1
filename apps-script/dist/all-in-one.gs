@@ -1432,8 +1432,10 @@ function normalizeTitle_(rawTitle) {
  * タイトルを解析する。
  * 戻り値: {
  *   ok, kind: 'work'|'skip'|'error', reason, warnings[],
- *   companyName, startTime, endTime, hasTimeRange, breakHours, hourlyWage, normalizedTitle
+ *   companyName, startTime, endTime, hasTimeRange, breakHours, hourlyWage, dailyWage,
+ *   allowance, hasFixedAmount, fixedAmount, normalizedTitle
  * }
+ * 時給が書いてあれば時給、無ければ日給を読む（dailyWage が 0 でなければ日給の勤務）。
  */
 function parseWorkEventTitle_(rawTitle) {
   var title = normalizeTitle_(rawTitle);
@@ -1448,6 +1450,7 @@ function parseWorkEventTitle_(rawTitle) {
     hasTimeRange: false,
     breakHours: 0,
     hourlyWage: 0,
+    dailyWage: 0,
     allowance: 0,
     hasFixedAmount: false,
     fixedAmount: 0,
@@ -1486,17 +1489,29 @@ function parseWorkEventTitle_(rawTitle) {
   var wage = title.match(/時給\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*円/);
   if (!wage) {
     var wageNoYen = title.match(/時給\s*([0-9][0-9,]*(?:\.[0-9]+)?)/);
-    if (!wageNoYen) {
-      res.reason = '時給の記載が見つかりません（例: 時給1226円）';
+    if (wageNoYen) {
+      wage = wageNoYen;
+      res.warnings.push('時給に「円」がありません（例: 時給1226円）');
+    }
+  }
+  if (wage) {
+    res.hourlyWage = toNumber_(wage[1]);
+    if (res.hourlyWage <= 0) {
+      res.reason = '時給が0円以下です';
       return res;
     }
-    wage = wageNoYen;
-    res.warnings.push('時給に「円」がありません（例: 時給1226円）');
-  }
-  res.hourlyWage = toNumber_(wage[1]);
-  if (res.hourlyWage <= 0) {
-    res.reason = '時給が0円以下です';
-    return res;
+  } else {
+    // 単発バイトは時給ではなく日給で出ることがある。その場合は日給をその日の基本給にする
+    var daily = title.match(/日給\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*円?/);
+    if (!daily) {
+      res.reason = '時給（または日給）の記載が見つかりません（例: 時給1226円 / 日給9891円）';
+      return res;
+    }
+    res.dailyWage = toNumber_(daily[1]);
+    if (res.dailyWage <= 0) {
+      res.reason = '日給が0円以下です';
+      return res;
+    }
   }
 
   res.allowance = parseAllowance_(title);
@@ -1606,14 +1621,17 @@ function computeWorkedHours_(startTime, endTime, breakHours) {
  * 手当は単発バイトで就業先ごとに出る固定額（交通費・食事補助など）。
  * 額面に含まれるものとして時給分に足す。
  *
+ * dailyWage（日給）が指定されていれば、時給×時間の代わりに日給を基本給にする。
  * fixedAmount（その日の支給額）が指定されていれば、計算結果ではなくそちらを使う。
  * 残業や会社独自の端数処理で、時給×時間と実際の支給額がずれる日のため。
  */
-function computeEstimatedAmount_(workedHours, hourlyWage, allowance, fixedAmount) {
+function computeEstimatedAmount_(workedHours, hourlyWage, allowance, fixedAmount, dailyWage) {
   // その日の支給額が分かっている場合（残業がついた日など）は、それをそのまま使う
   var fixed = Number(fixedAmount || 0);
   if (fixed > 0) return Math.round(fixed);
-  var base = Math.round(Number(workedHours || 0) * Number(hourlyWage || 0));
+  // 日給の勤務は時間に関係なく日給が基本給。手当・交通費は別に足す
+  var daily = Number(dailyWage || 0);
+  var base = daily > 0 ? Math.round(daily) : Math.round(Number(workedHours || 0) * Number(hourlyWage || 0));
   return base + Math.round(Number(allowance || 0));
 }
 
@@ -2422,6 +2440,12 @@ function prefetchCalendar_(today) {
   });
 }
 
+/** 明細の時給欄に入れる値。日給の勤務は日給÷実働時間（円未満四捨五入） */
+function effectiveHourlyWage_(parsed, workedHours) {
+  if (parsed.dailyWage > 0) return workedHours > 0 ? Math.round(parsed.dailyWage / workedHours) : 0;
+  return parsed.hourlyWage;
+}
+
 /**
  * 勤務明細の行IDに使う接頭辞。
  * 既定カレンダー（primary）は既存データとの互換のため接頭辞を付けない。
@@ -2518,12 +2542,13 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
         end_time: endTime,
         break_hours: round2_(parsed.breakHours),
         worked_hours: round2_(workedHours),
-        hourly_wage: parsed.hourlyWage,
+        hourly_wage: effectiveHourlyWage_(parsed, workedHours),
         estimated_amount: computeEstimatedAmount_(
           workedHours,
           parsed.hourlyWage,
           parsed.allowance,
-          parsed.fixedAmount
+          parsed.fixedAmount,
+          parsed.dailyWage
         ),
         reconciled: false,
         source_title: title,
@@ -2591,14 +2616,15 @@ function fetchPlannedShifts_(startDate, endDate) {
         start_time: startTime,
         end_time: endTime,
         worked_hours: round2_(workedHours),
-        hourly_wage: parsed.hourlyWage,
+        hourly_wage: effectiveHourlyWage_(parsed, workedHours),
         allowance: parsed.allowance,
         fixed_amount: parsed.hasFixedAmount ? parsed.fixedAmount : 0,
         estimated_amount: computeEstimatedAmount_(
           workedHours,
           parsed.hourlyWage,
           parsed.allowance,
-          parsed.fixedAmount
+          parsed.fixedAmount,
+          parsed.dailyWage
         )
       });
     });
@@ -4691,6 +4717,21 @@ function runTests() {
   check('推定収入: 手当を足す', computeEstimatedAmount_(8, 1200, 1000), 8 * 1200 + 1000);
   check('推定収入: 手当が無くても従来どおり', computeEstimatedAmount_(8, 1200), 9600);
   check('推定収入: 手当だけの端数も四捨五入', computeEstimatedAmount_(0, 0, 1500), 1500);
+
+  /* --- 日給（単発バイトで時給ではなく1日いくらで出る勤務） --- */
+  var dw1 = parseWorkEventTitle_('[ビート] 08:00-16:00日給9891');
+  check('日給: 円が無くても読める', [dw1.ok, dw1.dailyWage, dw1.hourlyWage], [true, 9891, 0]);
+  var dw2 = parseWorkEventTitle_('[バイトレ] 14:00-23:00 日給14700円');
+  check('日給: 基本形', [dw2.ok, dw2.dailyWage], [true, 14700]);
+  check('日給: カンマ・全角でも読める', parseWorkEventTitle_('［Ａ］ ０９：００−１７：００ 日給１２，０００円').dailyWage, 12000);
+  check('日給: 時給があれば時給を優先', parseWorkEventTitle_('[A] 09:00-17:00 休憩1h 時給1200円 日給9000円').dailyWage, 0);
+  check('日給: 手当も読む', parseWorkEventTitle_('[A] 09:00-17:00 日給9000円 交通費500円').allowance, 500);
+  check('日給も時給も無ければエラー', parseWorkEventTitle_('[A] 09:00-17:00 休憩1h').kind, 'error');
+  check('推定収入: 日給は時間に関係なく日給', computeEstimatedAmount_(8, 0, 0, 0, 9891), 9891);
+  check('推定収入: 日給に手当を足す', computeEstimatedAmount_(8, 0, 500, 0, 9000), 9500);
+  check('推定収入: 支給額は日給より優先', computeEstimatedAmount_(8, 0, 0, 12000, 9000), 12000);
+  check('明細の時給欄: 日給÷実働', effectiveHourlyWage_({ dailyWage: 9891, hourlyWage: 0 }, 8), 1236);
+  check('明細の時給欄: 時給の勤務はそのまま', effectiveHourlyWage_({ dailyWage: 0, hourlyWage: 1700 }, 8), 1700);
 
   /* --- 支給額（残業などで時給×時間とずれた日を上書きする） --- */
   var fx1 = parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円 支給12000円');

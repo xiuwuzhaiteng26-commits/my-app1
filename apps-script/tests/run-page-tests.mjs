@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { makeSandbox } from './fake-google.mjs';
+import { makeSandbox, frozenDate } from './fake-google.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -46,6 +46,8 @@ const env = makeSandbox({
     }
   ]
 });
+// 見込みは「今日より先の予定」から作るので、テストデータの日付に時計を合わせる
+env.sandbox.Date = frozenDate(new Date(2026, 7, 24, 12, 0));
 const ctx = vm.createContext(env.sandbox);
 vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), ctx, { filename: 'all-in-one.gs' });
 vm.runInContext('setupSheets()', ctx);

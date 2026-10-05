@@ -399,3 +399,27 @@ export function holidayFixture(years) {
   });
   return byDate;
 }
+
+/**
+ * 「いま」を固定した Date。sandbox.Date に入れて使う。
+ *
+ * アプリは「今月」「今年」を new Date() から決めるので、実際の日付のまま
+ * テストすると、書いた月を過ぎた途端に結果が変わって落ちる。
+ * 引数なしの new Date() と Date.now() だけを固定し、それ以外は本物と同じに動かす。
+ * サブクラスではなく Proxy にしているのは、instanceof Date を壊さないため。
+ */
+export function frozenDate(now) {
+  const fixed = now.getTime();
+  return new Proxy(Date, {
+    construct(target, args) {
+      return args.length ? new target(...args) : new target(fixed);
+    },
+    apply() {
+      return new Date(fixed).toString();
+    },
+    get(target, prop, receiver) {
+      if (prop === 'now') return () => fixed;
+      return Reflect.get(target, prop, receiver);
+    }
+  });
+}

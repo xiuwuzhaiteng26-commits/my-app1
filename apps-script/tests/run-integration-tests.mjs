@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { makeSandbox, apiCalls, holidayFixture, HOLIDAY_CALENDAR_ID } from './fake-google.mjs';
+import { makeSandbox, apiCalls, holidayFixture, HOLIDAY_CALENDAR_ID, frozenDate } from './fake-google.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -78,6 +78,8 @@ const events = {
 // --bundle を付けると、生成された全部入り1ファイル版に対して同じテストを流す
 const useBundle = process.argv.includes('--bundle');
 const { sandbox, spreadsheet, sentMail, alerts, menu, dialogs } = makeSandbox(events);
+// 「今月」を見る処理があるので、テストデータの日付（2026年8月）に時計を合わせておく
+sandbox.Date = frozenDate(new Date(2026, 7, 20, 23, 30));
 const context = vm.createContext(sandbox);
 if (useBundle) {
   const bundle = join(root, 'dist', 'all-in-one.gs');
@@ -191,14 +193,14 @@ check('サマリー: 壁の残りを表示', summaryText.includes('123万円') &
 check('サマリー: 合計所得金額を表示', summaryText.includes('合計所得金額'), true);
 check('サマリー: 労働時間を表示', summaryText.includes('Kakedas（上限は暫定値）'), true);
 // 先読みが有効になったので、これからの予定の書式エラーは runInfo が無くても出る
-check('サマリー: 先の予定の書式エラーも知らせる', summaryText.includes('時給の記載が見つかりません'), true);
+check('サマリー: 先の予定の書式エラーも知らせる', summaryText.includes('時給（または日給）の記載が見つかりません'), true);
 
 run('writeSummarySheet_(buildSnapshot_(__target, __run))', (context.__run = runInfo));
 const summaryText2 = spreadsheet
   .getSheetByName('サマリー')
   .data.map((line) => (line || []).join(' '))
   .join('\n');
-check('サマリー: 解析エラーを注意メッセージに表示', summaryText2.includes('時給の記載が見つかりません'), true);
+check('サマリー: 解析エラーを注意メッセージに表示', summaryText2.includes('時給（または日給）の記載が見つかりません'), true);
 check('サマリー: 書き換えても行が残らない', summaryText2.split('\n').filter((l) => l.includes('【免責】')).length, 2);
 
 /* --- 労働時間の警告 --- */
@@ -567,6 +569,53 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   title = '[バイトレ] 09:00-19:00 休憩なし 時給1700円';
   reimport();
   check('支給額: 消せば時給×時間に戻る', [Number(only().estimated_amount), Number(only().fixed_amount)], [10 * 1700, 0]);
+}
+
+/* --- 日給（時給から日給に書き換えた予定も正しく上書きされるか） --- */
+{
+  let title = '[ビート] 08:00-16:00 休憩なし 時給1413円';
+  const dwEnv = makeSandbox({
+    '2026-09-06': [{ id: 'evt-dw', title, start: new Date(2026, 8, 6, 8, 0), end: new Date(2026, 8, 6, 16, 0) }],
+    '2026-10-01': [
+      { id: 'evt-dw2', title: '[バイトレ] 14:00-23:00 日給14700円', start: new Date(2026, 9, 1, 14, 0), end: new Date(2026, 9, 1, 23, 0) }
+    ]
+  });
+  dwEnv.sandbox.CalendarApp.getDefaultCalendar = (function (original) {
+    return function () {
+      const calendar = original();
+      return {
+        getEventsForDay: calendar.getEventsForDay,
+        getEvents: (start, end) =>
+          calendar.getEvents(start, end).map((e) => {
+            if (e.getId() === 'evt-dw') e.title = title;
+            return e;
+          })
+      };
+    };
+  })(dwEnv.sandbox.CalendarApp.getDefaultCalendar);
+  const dwCtx = vm.createContext(dwEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), dwCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), dwCtx, { filename: file });
+  }
+  const dwRun = (expr) => vm.runInContext(expr, dwCtx);
+  const reimport = () => dwRun('beginExecution_(); importDateRange_(new Date(2026, 8, 6), new Date(2026, 9, 1))');
+  const row = (date) => dwRun('readTable_(SHEETS.CALENDAR).rows').filter((r) => String(r.date) === date)[0];
+
+  dwRun('ensureSheets_()');
+  const first = reimport();
+  check('日給: 取り込みでエラーにならない', first.errors, []);
+  check('日給: 日給だけの予定も取り込む', Number(row('2026-10-01').estimated_amount), 14700);
+  check('日給: 実働時間は時刻から出す', Number(row('2026-10-01').worked_hours), 9);
+  check('日給: 時給欄は日給÷実働', Number(row('2026-10-01').hourly_wage), 1633);
+  check('日給の前: 最初は時給で計算', Number(row('2026-09-06').estimated_amount), 8 * 1413);
+
+  // 実際に起きたこと: 時給で書いた予定をあとから日給に書き換えた
+  title = '[ビート] 08:00-16:00日給9891';
+  reimport();
+  check('日給に書き換え: 古い金額が残らない', Number(row('2026-09-06').estimated_amount), 9891);
+  check('日給に書き換え: 行は増えない', dwRun('readTable_(SHEETS.CALENDAR).rows.length'), 2);
 }
 
 /* --- 複数アカウントのカレンダーをまとめて取り込む --- */

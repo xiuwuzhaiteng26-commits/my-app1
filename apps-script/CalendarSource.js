@@ -85,6 +85,12 @@ function prefetchCalendar_(today) {
   });
 }
 
+/** 明細の時給欄に入れる値。日給の勤務は日給÷実働時間（円未満四捨五入） */
+function effectiveHourlyWage_(parsed, workedHours) {
+  if (parsed.dailyWage > 0) return workedHours > 0 ? Math.round(parsed.dailyWage / workedHours) : 0;
+  return parsed.hourlyWage;
+}
+
 /**
  * 勤務明細の行IDに使う接頭辞。
  * 既定カレンダー（primary）は既存データとの互換のため接頭辞を付けない。
@@ -181,12 +187,13 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
         end_time: endTime,
         break_hours: round2_(parsed.breakHours),
         worked_hours: round2_(workedHours),
-        hourly_wage: parsed.hourlyWage,
+        hourly_wage: effectiveHourlyWage_(parsed, workedHours),
         estimated_amount: computeEstimatedAmount_(
           workedHours,
           parsed.hourlyWage,
           parsed.allowance,
-          parsed.fixedAmount
+          parsed.fixedAmount,
+          parsed.dailyWage
         ),
         reconciled: false,
         source_title: title,
@@ -254,14 +261,15 @@ function fetchPlannedShifts_(startDate, endDate) {
         start_time: startTime,
         end_time: endTime,
         worked_hours: round2_(workedHours),
-        hourly_wage: parsed.hourlyWage,
+        hourly_wage: effectiveHourlyWage_(parsed, workedHours),
         allowance: parsed.allowance,
         fixed_amount: parsed.hasFixedAmount ? parsed.fixedAmount : 0,
         estimated_amount: computeEstimatedAmount_(
           workedHours,
           parsed.hourlyWage,
           parsed.allowance,
-          parsed.fixedAmount
+          parsed.fixedAmount,
+          parsed.dailyWage
         )
       });
     });

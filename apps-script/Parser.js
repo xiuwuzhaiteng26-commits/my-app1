@@ -22,8 +22,10 @@ function normalizeTitle_(rawTitle) {
  * タイトルを解析する。
  * 戻り値: {
  *   ok, kind: 'work'|'skip'|'error', reason, warnings[],
- *   companyName, startTime, endTime, hasTimeRange, breakHours, hourlyWage, normalizedTitle
+ *   companyName, startTime, endTime, hasTimeRange, breakHours, hourlyWage, dailyWage,
+ *   allowance, hasFixedAmount, fixedAmount, normalizedTitle
  * }
+ * 時給が書いてあれば時給、無ければ日給を読む（dailyWage が 0 でなければ日給の勤務）。
  */
 function parseWorkEventTitle_(rawTitle) {
   var title = normalizeTitle_(rawTitle);
@@ -38,6 +40,7 @@ function parseWorkEventTitle_(rawTitle) {
     hasTimeRange: false,
     breakHours: 0,
     hourlyWage: 0,
+    dailyWage: 0,
     allowance: 0,
     hasFixedAmount: false,
     fixedAmount: 0,
@@ -76,17 +79,29 @@ function parseWorkEventTitle_(rawTitle) {
   var wage = title.match(/時給\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*円/);
   if (!wage) {
     var wageNoYen = title.match(/時給\s*([0-9][0-9,]*(?:\.[0-9]+)?)/);
-    if (!wageNoYen) {
-      res.reason = '時給の記載が見つかりません（例: 時給1226円）';
+    if (wageNoYen) {
+      wage = wageNoYen;
+      res.warnings.push('時給に「円」がありません（例: 時給1226円）');
+    }
+  }
+  if (wage) {
+    res.hourlyWage = toNumber_(wage[1]);
+    if (res.hourlyWage <= 0) {
+      res.reason = '時給が0円以下です';
       return res;
     }
-    wage = wageNoYen;
-    res.warnings.push('時給に「円」がありません（例: 時給1226円）');
-  }
-  res.hourlyWage = toNumber_(wage[1]);
-  if (res.hourlyWage <= 0) {
-    res.reason = '時給が0円以下です';
-    return res;
+  } else {
+    // 単発バイトは時給ではなく日給で出ることがある。その場合は日給をその日の基本給にする
+    var daily = title.match(/日給\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*円?/);
+    if (!daily) {
+      res.reason = '時給（または日給）の記載が見つかりません（例: 時給1226円 / 日給9891円）';
+      return res;
+    }
+    res.dailyWage = toNumber_(daily[1]);
+    if (res.dailyWage <= 0) {
+      res.reason = '日給が0円以下です';
+      return res;
+    }
   }
 
   res.allowance = parseAllowance_(title);

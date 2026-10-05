@@ -68,6 +68,21 @@ function runTests() {
   check('推定収入: 手当が無くても従来どおり', computeEstimatedAmount_(8, 1200), 9600);
   check('推定収入: 手当だけの端数も四捨五入', computeEstimatedAmount_(0, 0, 1500), 1500);
 
+  /* --- 日給（単発バイトで時給ではなく1日いくらで出る勤務） --- */
+  var dw1 = parseWorkEventTitle_('[ビート] 08:00-16:00日給9891');
+  check('日給: 円が無くても読める', [dw1.ok, dw1.dailyWage, dw1.hourlyWage], [true, 9891, 0]);
+  var dw2 = parseWorkEventTitle_('[バイトレ] 14:00-23:00 日給14700円');
+  check('日給: 基本形', [dw2.ok, dw2.dailyWage], [true, 14700]);
+  check('日給: カンマ・全角でも読める', parseWorkEventTitle_('［Ａ］ ０９：００−１７：００ 日給１２，０００円').dailyWage, 12000);
+  check('日給: 時給があれば時給を優先', parseWorkEventTitle_('[A] 09:00-17:00 休憩1h 時給1200円 日給9000円').dailyWage, 0);
+  check('日給: 手当も読む', parseWorkEventTitle_('[A] 09:00-17:00 日給9000円 交通費500円').allowance, 500);
+  check('日給も時給も無ければエラー', parseWorkEventTitle_('[A] 09:00-17:00 休憩1h').kind, 'error');
+  check('推定収入: 日給は時間に関係なく日給', computeEstimatedAmount_(8, 0, 0, 0, 9891), 9891);
+  check('推定収入: 日給に手当を足す', computeEstimatedAmount_(8, 0, 500, 0, 9000), 9500);
+  check('推定収入: 支給額は日給より優先', computeEstimatedAmount_(8, 0, 0, 12000, 9000), 12000);
+  check('明細の時給欄: 日給÷実働', effectiveHourlyWage_({ dailyWage: 9891, hourlyWage: 0 }, 8), 1236);
+  check('明細の時給欄: 時給の勤務はそのまま', effectiveHourlyWage_({ dailyWage: 0, hourlyWage: 1700 }, 8), 1700);
+
   /* --- 支給額（残業などで時給×時間とずれた日を上書きする） --- */
   var fx1 = parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円 支給12000円');
   check('支給額: 基本形', [fx1.ok, fx1.hasFixedAmount, fx1.fixedAmount], [true, true, 12000]);
