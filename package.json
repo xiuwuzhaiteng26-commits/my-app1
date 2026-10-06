@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "build:apps-script": "node apps-script/build-single-file.mjs",
-    "test:apps-script": "node apps-script/tests/run-node-tests.mjs && node apps-script/tests/run-integration-tests.mjs && npm run build:apps-script && node apps-script/tests/run-integration-tests.mjs --bundle && node apps-script/tests/run-page-tests.mjs",
+    "test:apps-script": "node apps-script/tests/run-node-tests.mjs && node apps-script/tests/run-integration-tests.mjs && npm run build:apps-script && node apps-script/tests/run-integration-tests.mjs --bundle && node apps-script/tests/run-integration-tests.mjs --bundle-min && node apps-script/tests/run-page-tests.mjs && node apps-script/tests/run-page-tests.mjs --min",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -20,7 +20,9 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
+    "html-minifier-terser": "^7.2.0",
     "oxlint": "^1.75.0",
+    "terser": "^5.51.2",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
   }

@@ -49,7 +49,10 @@ const env = makeSandbox({
 // 見込みは「今日より先の予定」から作るので、テストデータの日付に時計を合わせる
 env.sandbox.Date = frozenDate(new Date(2026, 7, 24, 12, 0));
 const ctx = vm.createContext(env.sandbox);
-vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), ctx, { filename: 'all-in-one.gs' });
+// --min を付けると、貼り付け用に小さくした版の画面で同じテストを流す
+const useMin = process.argv.includes('--min');
+const BUNDLE_FILE = useMin ? 'all-in-one.min.gs' : 'all-in-one.gs';
+vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), ctx, { filename: BUNDLE_FILE });
 vm.runInContext('setupSheets()', ctx);
 // タブ区切りのキーや記号を含むデータでも壊れないことを見る
 vm.runInContext(
@@ -399,6 +402,7 @@ check('画面: 見込みを月ごとに分ける', /\d{4}年\d+月/.test(forecas
 check('画面: 月ごとの合計時間を出す', forecast2.indexOf('合計 ') > 0, true);
 
 console.log(details.join('\n'));
-const summary = failed === 0 ? `画面テスト: 全${details.length}件成功` : `画面テスト: ${failed}件失敗 / 全${details.length}件`;
+const pageLabel = useMin ? '画面テスト(貼り付け用)' : '画面テスト';
+const summary = failed === 0 ? `${pageLabel}: 全${details.length}件成功` : `${pageLabel}: ${failed}件失敗 / 全${details.length}件`;
 console.log('\n' + summary);
 process.exit(failed === 0 ? 0 : 1);

@@ -356,6 +356,11 @@ function addManualIncomeFromMenu() {
 }
 
 function runTestsFromMenu() {
+  // 貼り付け用の小さい版にはセルフテストを入れていない（ファイルを小さくするため）
+  if (typeof runTests !== 'function') {
+    showAlert_('セルフテスト', 'この版にはセルフテストが入っていません（貼り付け用に小さくした版のため）。');
+    return;
+  }
   var result = runTests();
   // エディタから実行されたときは、ログに出しておけば結果は確認できる
   showAlert_(result.summary, result.details.join('\n'));

@@ -76,13 +76,16 @@ const events = {
 };
 
 // --bundle を付けると、生成された全部入り1ファイル版に対して同じテストを流す
-const useBundle = process.argv.includes('--bundle');
+// --bundle-min なら、貼り付け用に小さくした版に対して流す（動きが変わっていないことを確かめる）
+const useMin = process.argv.includes('--bundle-min');
+const useBundle = useMin || process.argv.includes('--bundle');
+const BUNDLE_FILE = useMin ? 'all-in-one.min.gs' : 'all-in-one.gs';
 const { sandbox, spreadsheet, sentMail, alerts, menu, dialogs } = makeSandbox(events);
 // 「今月」を見る処理があるので、テストデータの日付（2026年8月）に時計を合わせておく
 sandbox.Date = frozenDate(new Date(2026, 7, 20, 23, 30));
 const context = vm.createContext(sandbox);
 if (useBundle) {
-  const bundle = join(root, 'dist', 'all-in-one.gs');
+  const bundle = join(root, 'dist', BUNDLE_FILE);
   vm.runInContext(readFileSync(bundle, 'utf8'), context, { filename: 'all-in-one.gs' });
 } else {
   for (const file of files) {
@@ -94,7 +97,15 @@ const run = (expr) => vm.runInContext(expr, context);
 if (useBundle) {
   check('1ファイル版: 画面のHTMLを同梱', run('Object.keys(INLINE_HTML).sort()'), ['App', 'Reconcile']);
   check('1ファイル版: アプリ画面が読める', run("INLINE_HTML['App'].indexOf('<!DOCTYPE html>') === 0"), true);
-  check('1ファイル版: セルフテストも同梱', run('typeof runTests'), 'function');
+  if (useMin) {
+    check('貼り付け用: セルフテストは外してある', run('typeof runTests'), 'undefined');
+    const alertsBefore = alerts.length;
+    check('貼り付け用: セルフテストのメニューを押しても落ちない', run('runTestsFromMenu(); true'), true);
+    check('貼り付け用: 入っていないことを知らせる', String(alerts[alertsBefore]).indexOf('入っていません') >= 0, true);
+    alerts.splice(alertsBefore);
+  } else {
+    check('1ファイル版: セルフテストも同梱', run('typeof runTests'), 'function');
+  }
 }
 
 /* --- メニューと初期セットアップ（利用者が最初に通る道） --- */
@@ -316,7 +327,7 @@ check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYe
   if (useBundle) {
     // 貼り付けで先頭が欠けても「Unexpected token '*' 行: 1」にならないよう、
     // 1ファイル版にはブロックコメントを残さない
-    const bundleLines = readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8').split('\n');
+    const bundleLines = readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8').split('\n');
     check('1ファイル版: * で始まる行が無い', bundleLines.filter((l) => /^\s*\*/.test(l)).length, 0);
     check('1ファイル版: /* で始まる行が無い', bundleLines.filter((l) => /^\s*\/\*/.test(l)).length, 0);
     check('画面: 中身が埋め込まれている', output.getContent().indexOf('<!DOCTYPE html>') === 0, true);
@@ -378,7 +389,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   });
   const aCtx = vm.createContext(autoEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), aCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), aCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), aCtx, { filename: file });
   }
@@ -460,7 +471,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   });
   const alCtx = vm.createContext(allowEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), alCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), alCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), alCtx, { filename: file });
   }
@@ -533,7 +544,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
 
   const fxCtx = vm.createContext(fxEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), fxCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), fxCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), fxCtx, { filename: file });
   }
@@ -600,7 +611,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   })(dwEnv.sandbox.CalendarApp.getDefaultCalendar);
   const dwCtx = vm.createContext(dwEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), dwCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), dwCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), dwCtx, { filename: file });
   }
@@ -634,7 +645,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   const cEnv = makeSandbox(cEvents);
   const cCtx = vm.createContext(cEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), cCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), cCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), cCtx, { filename: file });
   }
@@ -696,7 +707,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   const multiEnv = makeSandbox(primaryEvents, otherEvents);
   const multiCtx = vm.createContext(multiEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), multiCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), multiCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), multiCtx, { filename: file });
   }
@@ -760,7 +771,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   });
   const fCtx = vm.createContext(fEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), fCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), fCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), fCtx, { filename: file });
   }
@@ -828,7 +839,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   const emptyEnv = makeSandbox({});
   const eCtx = vm.createContext(emptyEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), eCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), eCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), eCtx, { filename: file });
   }
@@ -852,7 +863,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   });
   const seedContext = vm.createContext(seedEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), seedContext, {
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), seedContext, {
       filename: 'all-in-one.gs'
     });
   } else {
@@ -942,7 +953,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   );
   const pcCtx = vm.createContext(pcEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), pcCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), pcCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), pcCtx, { filename: file });
   }
@@ -990,7 +1001,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   const hEnv = makeSandbox({}, { [HOLIDAY_CALENDAR_ID]: holidayFixture([2025, 2026, 2027]) });
   const hCtx = vm.createContext(hEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), hCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), hCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), hCtx, { filename: file });
   }
@@ -1033,7 +1044,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   };
   const uiCtx = vm.createContext(uiEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), uiCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), uiCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), uiCtx, { filename: file });
   }
@@ -1080,7 +1091,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   const perfEnv = makeSandbox(perfEvents);
   const perfCtx = vm.createContext(perfEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), perfCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), perfCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), perfCtx, { filename: file });
   }
@@ -1134,7 +1145,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   const legacy = makeSandbox({});
   const legacyContext = vm.createContext(legacy.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), legacyContext, {
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), legacyContext, {
       filename: 'all-in-one.gs'
     });
   } else {
@@ -1180,7 +1191,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   const wallEnv = makeSandbox({});
   const wallCtx = vm.createContext(wallEnv.sandbox);
   if (useBundle) {
-    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), wallCtx, { filename: 'all-in-one.gs' });
+    vm.runInContext(readFileSync(join(root, 'dist', BUNDLE_FILE), 'utf8'), wallCtx, { filename: 'all-in-one.gs' });
   } else {
     for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), wallCtx, { filename: file });
   }
@@ -1227,7 +1238,7 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
 }
 
 console.log(details.join('\n'));
-const label = useBundle ? '結合テスト(1ファイル版)' : '結合テスト';
+const label = useMin ? '結合テスト(貼り付け用)' : useBundle ? '結合テスト(1ファイル版)' : '結合テスト';
 const summary = failed === 0 ? `${label}: 全${details.length}件成功` : `${label}: ${failed}件失敗 / 全${details.length}件`;
 console.log('\n' + summary);
 process.exit(failed === 0 ? 0 : 1);
