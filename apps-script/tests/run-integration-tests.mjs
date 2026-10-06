@@ -333,14 +333,14 @@ check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYe
 check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.lookbackDays'), 31);
 {
   // 8/20 に予定を足してから 8/22 の夜間実行を回すと、後から書いた予定も拾える
-  events['2026-08-20'] = [
+  events['2026-08-20'] = (events['2026-08-20'] || []).concat([
     {
       id: 'evt-late@google.com',
       title: '[バイトレ] 10:00-15:00 休憩なし 時給1700円',
       start: new Date(2026, 7, 20, 10, 0),
       end: new Date(2026, 7, 20, 15, 0)
     }
-  ];
+  ]);
   const before = run('readTable_(SHEETS.CALENDAR).rows.length');
   run('dailyJob()');
   const after = run('readTable_(SHEETS.CALENDAR).rows');
@@ -616,6 +616,51 @@ check('毎日の実行: 過去1ヶ月分を見直す設定', run('CONFIG.daily.l
   reimport();
   check('日給に書き換え: 古い金額が残らない', Number(row('2026-09-06').estimated_amount), 9891);
   check('日給に書き換え: 行は増えない', dwRun('readTable_(SHEETS.CALENDAR).rows.length'), 2);
+}
+
+/* --- キャンセルして予定を消した勤務は、明細からも消える --- */
+{
+  const day = (d, id, title) => ({ id, title, start: new Date(2026, 8, d, 9, 0), end: new Date(2026, 8, d, 18, 0) });
+  const cEvents = {
+    '2026-09-10': [day(10, 'keep@google.com', '[A社] 09:00-18:00 休憩1h 時給1000円')],
+    '2026-09-11': [day(11, 'cancel@google.com', '[A社] 09:00-18:00 休憩1h 時給1000円')],
+    '2026-09-12': [day(12, 'typo@google.com', '[A社] 09:00-18:00 休憩1h 時給1000円')]
+  };
+  const cEnv = makeSandbox(cEvents);
+  const cCtx = vm.createContext(cEnv.sandbox);
+  if (useBundle) {
+    vm.runInContext(readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8'), cCtx, { filename: 'all-in-one.gs' });
+  } else {
+    for (const file of files) vm.runInContext(readFileSync(join(root, file), 'utf8'), cCtx, { filename: file });
+  }
+  const cRun = (expr) => vm.runInContext(expr, cCtx);
+  const reimport = () => cRun('beginExecution_(); importDateRange_(new Date(2026, 8, 10), new Date(2026, 8, 12))');
+  const dates = () => cRun('readTable_(SHEETS.CALENDAR).rows').map((r) => String(r.date)).sort();
+
+  cRun('ensureSheets_()');
+  cRun(`SEED_SHIFTS = [['2026-09-11', '手入力社', '13:00', '17:00', 0, 1000]]; seedShifts_();`);
+  reimport();
+  check('キャンセル: 最初は全部ある', dates(), ['2026-09-10', '2026-09-11', '2026-09-11', '2026-09-12']);
+
+  // 9/11 をキャンセルして予定を消し、9/12 は書き間違えて読めなくなった
+  cEvents['2026-09-11'] = [];
+  cEvents['2026-09-12'] = [day(12, 'typo@google.com', '[A社] 09:00-18:00 休憩1h 時給')];
+  const run2 = reimport();
+  check('キャンセル: 消した予定の行は消える', dates().filter((d) => d === '2026-09-11').length, 1);
+  check('キャンセル: 手入力の行は消さない', cRun('readTable_(SHEETS.CALENDAR).rows').some((r) => r.company_name === '手入力社'), true);
+  check('キャンセル: 書き間違いで読めない予定の行は残す', dates().includes('2026-09-12'), true);
+  check('キャンセル: 書き間違いはエラーで知らせる', run2.errors.length, 1);
+  check('キャンセル: 消した件数を記録する', run2.removed, 1);
+
+  // カレンダー自体が読めなかったときは、何も消さない
+  cEnv.sandbox.CalendarApp.getDefaultCalendar = () => ({
+    getEvents: () => {
+      throw new Error('一時的に読めません');
+    }
+  });
+  cRun('invalidateCalendarCache_()');
+  reimport();
+  check('キャンセル: カレンダーを読めないときは消さない', dates().length, 3);
 }
 
 /* --- 複数アカウントのカレンダーをまとめて取り込む --- */

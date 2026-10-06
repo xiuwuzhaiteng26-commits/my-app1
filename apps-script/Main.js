@@ -150,12 +150,71 @@ function importDateRange_(startDate, endDate) {
     return merged;
   });
 
+  // カレンダーから消した（キャンセルした）勤務は、明細からも消す
+  all.removed = removeVanishedEntries_(all, all.from, all.to);
+
   writeLog_(
     'import',
     all.errors.length > 0 ? '注意' : '正常',
-    all.from + '〜' + all.to + ' 取り込み ' + all.entries.length + '件 / 対象外 ' + all.skipped + '件 / エラー ' + all.errors.length + '件'
+    all.from + '〜' + all.to + ' 取り込み ' + all.entries.length + '件 / 対象外 ' + all.skipped + '件 / エラー ' + all.errors.length + '件' +
+      (all.removed ? ' / カレンダーから消えた勤務 ' + all.removed + '件を削除' : '')
   );
   return all;
+}
+
+/**
+ * 取り込んだ期間の中で、カレンダーに無くなった勤務の行を消す。
+ *
+ * シフトがキャンセルになって予定を消しても、明細の行が残ると収入に数え続けてしまう。
+ * ただし次のものは消さない（消すと収入が黙って減ってしまうため）。
+ *   ・手入力で登録した行（ID が seed- で始まる）
+ *   ・今回読めなかったカレンダーの行（通信エラーなどで一時的に読めないことがある）
+ *   ・予定はあるが書式の誤りで読めなかった行（直せばまた取り込まれる。エラーは別に知らせる）
+ */
+function removeVanishedEntries_(run, fromDate, toDate) {
+  var present = {};
+  run.entries.forEach(function (e) {
+    present[String(e.id)] = true;
+  });
+  (run.keptIds || []).forEach(function (id) {
+    present[String(id)] = true;
+  });
+  var fetched = {};
+  (run.fetchedSources || []).forEach(function (key) {
+    fetched[key] = true;
+  });
+
+  var remove = [];
+  readTable_(SHEETS.CALENDAR).rows.forEach(function (r) {
+    var id = String(r.id || '');
+    if (!id || id.indexOf('seed-') === 0 || present[id]) return;
+    var date = toDateString_(r.date);
+    if (date < fromDate || date > toDate) return;
+    if (!fetched[calendarKeyOfRowId_(id)]) return;
+    remove.push(r._rowIndex);
+  });
+  if (remove.length === 0) return 0;
+
+  var sheet = getSheet_(SHEETS.CALENDAR);
+  remove
+    .sort(function (a, b) {
+      return b - a;
+    })
+    .forEach(function (rowIndex) {
+      sheet.deleteRow(rowIndex);
+    });
+  invalidateTable_(SHEETS.CALENDAR);
+  return remove.length;
+}
+
+/** 明細の行IDが、どのカレンダーから取り込んだものかを返す（calendarIdPrefix_ の逆） */
+function calendarKeyOfRowId_(id) {
+  var keys = CONFIG.calendarIds && CONFIG.calendarIds.length ? CONFIG.calendarIds : ['primary'];
+  for (var i = 0; i < keys.length; i++) {
+    var key = String(keys[i] || 'primary').trim() || 'primary';
+    if (key !== 'primary' && id.indexOf(key + ':') === 0) return key;
+  }
+  return 'primary';
 }
 
 /** 新しい勤務先を company_hour_limits に暫定値で登録する */

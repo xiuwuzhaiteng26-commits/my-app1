@@ -119,7 +119,9 @@ function fetchWorkEntriesForDate_(date) {
  * 戻り値: { entries[], skipped, errors[], warnings[] }
  */
 function fetchWorkEntriesInRange_(startDate, endDate) {
-  var result = { entries: [], skipped: 0, errors: [], warnings: [] };
+  // keptIds: 勤務のつもりで書かれているのに読めなかった予定の行ID（古い行を消さずに残すため）
+  // fetchedSources: 予定を読めたカレンダー（読めなかったカレンダーの行は消さない）
+  var result = { entries: [], skipped: 0, errors: [], warnings: [], keptIds: [], fetchedSources: [] };
   var now = formatDateTime_(new Date());
 
   getTargetCalendars_().forEach(function (source) {
@@ -136,6 +138,7 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
       return;
     }
     var idPrefix = calendarIdPrefix_(source.key);
+    result.fetchedSources.push(source.key);
 
     events.forEach(function (event) {
       var dateStr = formatDate_(event.getStartTime());
@@ -146,8 +149,11 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
         result.skipped++;
         return;
       }
+      // 繰り返し予定は getId() が全回で同じになるため、日付を足して一意にする
+      var rowId = idPrefix + event.getId() + '#' + dateStr;
       if (parsed.kind === 'error') {
         result.errors.push(dateStr + ' 「' + title + '」: ' + parsed.reason);
+        result.keptIds.push(rowId);
         return;
       }
 
@@ -158,6 +164,7 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
           result.errors.push(
             dateStr + ' 「' + title + '」: 終日予定でタイトルにも時刻がありません（例: 09:00-18:00）'
           );
+          result.keptIds.push(rowId);
           return;
         }
         // タイトルに時刻を書かず、カレンダーの予定時刻をそのまま使う書き方も正式に対応する
@@ -168,6 +175,7 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
       var workedHours = computeWorkedHours_(startTime, endTime, parsed.breakHours);
       if (workedHours === null) {
         result.errors.push(dateStr + ' 「' + title + '」: 実働時間を計算できませんでした');
+        result.keptIds.push(rowId);
         return;
       }
       if (workedHours === 0) {
@@ -179,8 +187,7 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
       });
 
       result.entries.push({
-        // 繰り返し予定は getId() が全回で同じになるため、日付を足して一意にする
-        id: idPrefix + event.getId() + '#' + dateStr,
+        id: rowId,
         date: dateStr,
         company_name: parsed.companyName,
         start_time: startTime,
