@@ -189,7 +189,9 @@ export async function buildMinified({ root = here, transform = (code) => code } 
     '// 読める形の元のコードは apps-script/ にあります。ここは直接書き換えないでください。',
     ''
   ].join('\n');
-  return header + result.code + '\n';
+  // 貼り付けが途中で切れていないかを、利用者が目で確かめられるようにする
+  const footer = '\n// ===== ここが最後の行です。この行が見えていれば、全部貼り付けできています =====\n';
+  return header + result.code + footer;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
