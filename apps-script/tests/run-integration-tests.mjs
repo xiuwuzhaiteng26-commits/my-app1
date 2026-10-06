@@ -314,6 +314,11 @@ check('アプリ: 再読み込みで最新を返す', run('appRefresh().targetYe
     ['viewport', 'mobile-web-app-capable', 'apple-mobile-web-app-capable']
   );
   if (useBundle) {
+    // 貼り付けで先頭が欠けても「Unexpected token '*' 行: 1」にならないよう、
+    // 1ファイル版にはブロックコメントを残さない
+    const bundleLines = readFileSync(join(root, 'dist', 'all-in-one.gs'), 'utf8').split('\n');
+    check('1ファイル版: * で始まる行が無い', bundleLines.filter((l) => /^\s*\*/.test(l)).length, 0);
+    check('1ファイル版: /* で始まる行が無い', bundleLines.filter((l) => /^\s*\/\*/.test(l)).length, 0);
     check('画面: 中身が埋め込まれている', output.getContent().indexOf('<!DOCTYPE html>') === 0, true);
     check('画面: データが差し込まれている', output.getContent().indexOf('"targetYear":2026') > 0, true);
     check('画面: 生の差し込みタグが残っていない', output.getContent().indexOf('bootstrapJson') < 0, true);

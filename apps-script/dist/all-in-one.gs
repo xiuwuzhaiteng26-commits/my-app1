@@ -1,122 +1,110 @@
-/**
- * 年収の壁・労働時間管理ツール（全部入り1ファイル版）
- *
- * このファイルは自動生成です。直接編集せず、apps-script/ の各ファイルを直して
- * `npm run build:apps-script` で作り直してください。
- *
- * 使い方: Apps Script エディタのファイルにこの内容をすべて貼り付けて保存する。
- * 別途 appsscript.json のタイムゾーンを Asia/Tokyo にしておくこと。
- */
+// 年収の壁・労働時間管理ツール（全部入り1ファイル版）
+//
+// このファイルは自動生成です。直接編集せず、apps-script/ の各ファイルを直して
+// `npm run build:apps-script` で作り直してください。
+//
+// 使い方: Apps Script エディタのファイルにこの内容をすべて貼り付けて保存する。
+// 別途 appsscript.json のタイムゾーンを Asia/Tokyo にしておくこと。
 
-/* ======================= Config.js ======================= */
+// ======================= Config.js =======================
 
-/**
- * 設定ファイル
- *
- * 壁の金額・会社ごとの労働時間上限などの「年度や会社の回答によって変わる値」は
- * ここと、スプレッドシートの wall_thresholds / company_hour_limits シートで管理する。
- * ロジック側にはハードコードしないこと。
- *
- * ここの値は「初回セットアップ時にシートへ書き込まれる初期値」。
- * 運用開始後はスプレッドシート側の値が優先される（スマホから直接直せるようにするため）。
- */
+// 設定ファイル
+//
+// 壁の金額・会社ごとの労働時間上限などの「年度や会社の回答によって変わる値」は
+// ここと、スプレッドシートの wall_thresholds / company_hour_limits シートで管理する。
+// ロジック側にはハードコードしないこと。
+//
+// ここの値は「初回セットアップ時にシートへ書き込まれる初期値」。
+// 運用開始後はスプレッドシート側の値が優先される（スマホから直接直せるようにするため）。
 var CONFIG = {
-  /** 設定そのものの最終更新日（年度更新したら必ず更新する） */
+  // 設定そのものの最終更新日（年度更新したら必ず更新する）
   configLastUpdated: '2026-08-28',
 
-  /** タイムゾーン（日付の切れ目の判定に使う） */
+  // タイムゾーン（日付の切れ目の判定に使う）
   timeZone: 'Asia/Tokyo',
 
-  /**
-   * 読み取るカレンダー。'primary' でログインアカウントのデフォルトカレンダー。
-   * 他のGoogleアカウントの予定も取り込みたい場合は、そのカレンダーを
-   * このスクリプトを実行しているアカウントと共有した上で、配列に追記する。
-   *   calendarIds: ['primary', 'other-account@gmail.com']
-   * 共有のしかたは apps-script/README.md の「複数アカウントのカレンダーをまとめる」を参照。
-   */
+  // 読み取るカレンダー。'primary' でログインアカウントのデフォルトカレンダー。
+  // 他のGoogleアカウントの予定も取り込みたい場合は、そのカレンダーを
+  // このスクリプトを実行しているアカウントと共有した上で、配列に追記する。
+  //   calendarIds: ['primary', 'other-account@gmail.com']
+  // 共有のしかたは apps-script/README.md の「複数アカウントのカレンダーをまとめる」を参照。
   calendarIds: ['primary'],
 
-  /** 集計対象年。0 なら実行日の年を使う */
+  // 集計対象年。0 なら実行日の年を使う
   targetYear: 0,
 
-  /** 毎日の実行 */
+  // 毎日の実行
   daily: {
-    /**
-     * 当日だけでなく、過去何日分を毎晩見直すか。
-     * 予定を後から書き足したり直したりしても拾えるようにするための保険。
-     * 取り込みは上書きなので、何度見直しても二重計上にはならない。
-     */
+    // 当日だけでなく、過去何日分を毎晩見直すか。
+    // 予定を後から書き足したり直したりしても拾えるようにするための保険。
+    // 取り込みは上書きなので、何度見直しても二重計上にはならない。
     lookbackDays: 31
   },
 
-  /** 労働時間の警告（4分の3基準の暫定運用） */
+  // 労働時間の警告（4分の3基準の暫定運用）
   hours: {
-    /** 会社ごとの月間実働時間の暫定上限。正社員の所定労働時間の回答が来たら会社ごとに差し替える */
+    // 会社ごとの月間実働時間の暫定上限。正社員の所定労働時間の回答が来たら会社ごとに差し替える
     defaultMonthlyLimit: 120,
-    /** 上限のこの割合に達したら「注意」 */
+    // 上限のこの割合に達したら「注意」
     warnRatio: 0.8,
-    /** 上限のこの割合に達したら「警告」 */
+    // 上限のこの割合に達したら「警告」
     alertRatio: 1.0
   },
 
-  /** アプリ画面 */
+  // アプリ画面
   app: {
-    /**
-     * アプリを開いたとき、直近何日分のカレンダーをその場で取り込むか。
-     * 毎晩23:30を待たずに、書いた予定がすぐ反映されるようにするためのもの。
-     * 0 にすると自動取り込みをしない。
-     * 内容が変わっていない行は書き込まないので、日数を増やしても重くならない。
-     */
+    // アプリを開いたとき、直近何日分のカレンダーをその場で取り込むか。
+    // 毎晩23:30を待たずに、書いた予定がすぐ反映されるようにするためのもの。
+    // 0 にすると自動取り込みをしない。
+    // 内容が変わっていない行は書き込まないので、日数を増やしても重くならない。
     autoImportDays: 31
   },
 
-  /** この先の見込み（先読みと調整アドバイス） */
+  // この先の見込み（先読みと調整アドバイス）
   forecast: {
-    /** 何日先までのカレンダーを読むか */
+    // 何日先までのカレンダーを読むか
     lookaheadDays: 35,
-    /** 年末着地の目安を出すときに、直近何ヶ月の平均を使うか */
+    // 年末着地の目安を出すときに、直近何ヶ月の平均を使うか
     paceMonths: 3
   },
 
-  /**
-   * 給与サイクル（締め日と支給日）。
-   * 年収の壁は「支給日」が属する年で判定する（所得税基本通達36-9）ため、
-   * 勤務日ではなく支給日で集計している。
-   *
-   * 会社ごとの実際の設定は 給与サイクル シートで管理する。
-   * ここにあるのは、シートに登録が無い勤務先に使う暫定値。
-   */
+  // 給与サイクル（締め日と支給日）。
+  // 年収の壁は「支給日」が属する年で判定する（所得税基本通達36-9）ため、
+  // 勤務日ではなく支給日で集計している。
+  //
+  // 会社ごとの実際の設定は 給与サイクル シートで管理する。
+  // ここにあるのは、シートに登録が無い勤務先に使う暫定値。
   payCycle: {
-    /** 壁の判定を支給日ベースにするか。false にすると勤務日ベース（旧来の動き）に戻る */
+    // 壁の判定を支給日ベースにするか。false にすると勤務日ベース（旧来の動き）に戻る
     useForWalls: true,
     lastUpdated: '2026-08-30',
     fallback: {
-      /** 締め日。31 を書くと月末締め */
+      // 締め日。31 を書くと月末締め
       cutoffDay: 31,
-      /** 締め月の何ヶ月後に支給されるか */
+      // 締め月の何ヶ月後に支給されるか
       payMonthOffset: 1,
-      /** 支給日。31 を書くと月末払い */
+      // 支給日。31 を書くと月末払い
       payDay: 25,
-      /** 支給日が休日のとき: '前倒し' | '後ろ倒し' | 'そのまま' */
+      // 支給日が休日のとき: '前倒し' | '後ろ倒し' | 'そのまま'
       shiftRule: '前倒し',
-      /** 土日だけでなく祝日も休みとして扱うか（銀行振込は祝日も動かないため既定は true） */
+      // 土日だけでなく祝日も休みとして扱うか（銀行振込は祝日も動かないため既定は true）
       shiftOnHoliday: true
     }
   },
 
-  /** 祝日（支給日の前倒し判定に使う） */
+  // 祝日（支給日の前倒し判定に使う）
   holidays: {
-    /** Googleが公開している日本の祝日カレンダー */
+    // Googleが公開している日本の祝日カレンダー
     calendarId: 'ja.japanese#holiday@group.v.calendar.google.com',
-    /** 取り込んだ祝日を何日で取り込み直すか */
+    // 取り込んだ祝日を何日で取り込み直すか
     refreshDays: 45,
-    /** 会社独自の休業日などを足したいときに 'yyyy-MM-dd' で書く */
+    // 会社独自の休業日などを足したいときに 'yyyy-MM-dd' で書く
     extra: []
   },
 
-  /** 年収の壁（暫定値・年度更新前提） */
+  // 年収の壁（暫定値・年度更新前提）
   walls: {
-    /** 壁のこの割合に達したら「注意」 */
+    // 壁のこの割合に達したら「注意」
     warnRatio: 0.9,
     thresholds: [
       {
@@ -141,7 +129,7 @@ var CONFIG = {
         amount: 1500000,
         applicableYear: 2026,
         lastUpdated: '2026-08-28',
-        /** 制度変更や名前の整理で置き換わった、古い壁の名前 */
+        // 制度変更や名前の整理で置き換わった、古い壁の名前
         replaces: ['150万円'],
         note:
           '親の特定親族特別控除（63万円）が満額のままでいられる壁の目安（2025年度税制改正、19〜22歳の子が対象）。' +
@@ -151,11 +139,9 @@ var CONFIG = {
     ]
   },
 
-  /**
-   * 給与所得控除（合計所得金額の計算に使う）。
-   * deduction = min(収入, max(minimum, 収入 * rate + plus))
-   * このツールが主に扱うのは収入190万円以下の範囲なので、そこでは一律 minimum(65万円)になる。
-   */
+  // 給与所得控除（合計所得金額の計算に使う）。
+  // deduction = min(収入, max(minimum, 収入 * rate + plus))
+  // このツールが主に扱うのは収入190万円以下の範囲なので、そこでは一律 minimum(65万円)になる。
   salaryDeduction: {
     minimum: 650000,
     lastUpdated: '2026-08-22',
@@ -168,49 +154,45 @@ var CONFIG = {
     ]
   },
 
-  /** 月次の答え合わせ（給与明細との差分がこれを超えたら警告） */
+  // 月次の答え合わせ（給与明細との差分がこれを超えたら警告）
   reconcile: {
     toleranceRate: 0.05,
     toleranceAmount: 3000
   },
 
-  /**
-   * 通知設定。
-   *   'sheet'   … サマリーシートと実行ログの更新のみ（外部送信なし・既定）
-   *   'email'   … 実行アカウントのGmailへメール送信
-   *   'webhook' … Slack / Discord / 任意のWebhookへPOST
-   */
+  // 通知設定。
+  //   'sheet'   … サマリーシートと実行ログの更新のみ（外部送信なし・既定）
+  //   'email'   … 実行アカウントのGmailへメール送信
+  //   'webhook' … Slack / Discord / 任意のWebhookへPOST
   notify: {
     channel: 'email',
-    /** 空ならスクリプト実行アカウントのメールアドレス宛 */
+    // 空ならスクリプト実行アカウントのメールアドレス宛
     emailTo: '',
-    /** channel が 'sheet' でも、注意・警告が出た日だけはメールを送りたい場合は true */
+    // channel が 'sheet' でも、注意・警告が出た日だけはメールを送りたい場合は true
     alwaysNotifyOnAlert: false,
     webhookUrl: '',
-    /** 'slack' | 'discord' | 'json' */
+    // 'slack' | 'discord' | 'json'
     webhookFormat: 'slack'
   },
 
-  /** 免責表示（サマリーシート先頭と全通知の末尾に常時表示する） */
+  // 免責表示（サマリーシート先頭と全通知の末尾に常時表示する）
   disclaimer:
     '【免責】本ツールの金額・時間の壁は目安であり、正式な判断は税務署・年金事務所・各勤務先の労務担当に確認してください。'
 };
 
-/* ======================= Assets.js ======================= */
+// ======================= Assets.js =======================
 
-/**
- * 画面に埋め込む素材
- *
- * アプリ起動時のエンジン音。利用者が撮影した動画の音声から、
- * セルの回転〜始動〜アイドリングの部分だけを切り出したもの
- * （mp3・モノラル・約4.3秒）。
- *
- * 外部から読み込むと表示が遅くなるうえ、Apps Script のサンドボックスでは
- * 読めない場合があるため、データURIとしてそのまま持っている。
- *
- * ブラウザは「画面を開いただけ」では音を鳴らせない決まりになっているので、
- * 起動画面のスタートボタンを押したときに再生する。
- */
+// 画面に埋め込む素材
+//
+// アプリ起動時のエンジン音。利用者が撮影した動画の音声から、
+// セルの回転〜始動〜アイドリングの部分だけを切り出したもの
+// （mp3・モノラル・約4.3秒）。
+//
+// 外部から読み込むと表示が遅くなるうえ、Apps Script のサンドボックスでは
+// 読めない場合があるため、データURIとしてそのまま持っている。
+//
+// ブラウザは「画面を開いただけ」では音を鳴らせない決まりになっているので、
+// 起動画面のスタートボタンを押したときに再生する。
 var ENGINE_SOUND_MIME = 'audio/mpeg';
 var ENGINE_SOUND_BASE64 =
   'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//s4wAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8A' +
@@ -564,22 +546,20 @@ var ENGINE_SOUND_BASE64 =
   'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq' +
   'qqqqqqqq';
 
-/** <audio src> にそのまま入れられる形 */
+// <audio src> にそのまま入れられる形
 function engineSoundDataUri_() {
   return 'data:' + ENGINE_SOUND_MIME + ';base64,' + ENGINE_SOUND_BASE64;
 }
 
-/**
- * アイドリング音（アプリを開いている間ずっと流すループ）
- *
- * 同じ動画のアイドリング部分を切り出し、末尾と先頭を等パワーで
- * 混ぜてから切り詰めてある。そのため IDLE_SOUND_LOOP_SECONDS の
- * 長さで繰り返すと継ぎ目が分からない。
- *
- * mp3 は符号化の都合で前後に無音が入るため、単純な <audio loop> だと
- * 1回転ごとに途切れる。画面側では Web Audio API で読み込み、
- * 無音を除いた区間だけを繰り返している。
- */
+// アイドリング音（アプリを開いている間ずっと流すループ）
+//
+// 同じ動画のアイドリング部分を切り出し、末尾と先頭を等パワーで
+// 混ぜてから切り詰めてある。そのため IDLE_SOUND_LOOP_SECONDS の
+// 長さで繰り返すと継ぎ目が分からない。
+//
+// mp3 は符号化の都合で前後に無音が入るため、単純な <audio loop> だと
+// 1回転ごとに途切れる。画面側では Web Audio API で読み込み、
+// 無音を除いた区間だけを繰り返している。
 var IDLE_SOUND_LOOP_SECONDS = 1.65;
 var IDLE_SOUND_BASE64 =
   'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//s4wAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8A' +
@@ -722,14 +702,14 @@ var IDLE_SOUND_BASE64 =
   '/qnvtjIPgf4xCK5QgFwI4Lgx9X/DAPmjAHAgYLqDZAyiYrKmNJRRoSeQ5Dmbda1lAQEFagaDsGsSulga4KncsHeCrssHeCu9QdiV' +
   'YK/okv/UeLHolgrUeUeiWCtR4serTEFNRTMuMTAwqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq';
 
-/** <audio src> にそのまま入れられる形（Web Audio が使えない場合の代わり） */
+// <audio src> にそのまま入れられる形（Web Audio が使えない場合の代わり）
 function idleSoundDataUri_() {
   return 'data:' + ENGINE_SOUND_MIME + ';base64,' + IDLE_SOUND_BASE64;
 }
 
-/* ======================= Util.js ======================= */
+// ======================= Util.js =======================
 
-/** 日付・数値まわりの小さなユーティリティ */
+// 日付・数値まわりの小さなユーティリティ
 
 function formatDate_(date) {
   return Utilities.formatDate(date, CONFIG.timeZone, 'yyyy-MM-dd');
@@ -747,12 +727,10 @@ function formatYearMonth_(date) {
   return Utilities.formatDate(date, CONFIG.timeZone, 'yyyy-MM');
 }
 
-/**
- * スプレッドシート自身のタイムゾーン。
- * 日付・時刻のセルは「そのスプレッドシートのタイムゾーンでの値」として保存されるため、
- * セルを読むときは CONFIG.timeZone ではなくこちらを使う
- * （ロケールが日本以外のシートで 09:00 が別の時刻にずれるのを防ぐ）。
- */
+// スプレッドシート自身のタイムゾーン。
+// 日付・時刻のセルは「そのスプレッドシートのタイムゾーンでの値」として保存されるため、
+// セルを読むときは CONFIG.timeZone ではなくこちらを使う
+// （ロケールが日本以外のシートで 09:00 が別の時刻にずれるのを防ぐ）。
 var SHEET_TIME_ZONE_CACHE = null;
 function sheetTimeZone_() {
   if (SHEET_TIME_ZONE_CACHE) return SHEET_TIME_ZONE_CACHE;
@@ -764,7 +742,7 @@ function sheetTimeZone_() {
   return SHEET_TIME_ZONE_CACHE;
 }
 
-/** セルの値を 'yyyy-MM-dd' 文字列へ正規化（Dateセル・文字列セルの両方に対応） */
+// セルの値を 'yyyy-MM-dd' 文字列へ正規化（Dateセル・文字列セルの両方に対応）
 function toDateString_(value) {
   if (value instanceof Date) return Utilities.formatDate(value, sheetTimeZone_(), 'yyyy-MM-dd');
   var s = String(value == null ? '' : value).trim();
@@ -773,7 +751,7 @@ function toDateString_(value) {
   return m[1] + '-' + pad2_(m[2]) + '-' + pad2_(m[3]);
 }
 
-/** セルの値を 'HH:mm' 文字列へ正規化 */
+// セルの値を 'HH:mm' 文字列へ正規化
 function toTimeString_(value) {
   if (value instanceof Date) return Utilities.formatDate(value, sheetTimeZone_(), 'HH:mm');
   var s = String(value == null ? '' : value).trim();
@@ -787,8 +765,8 @@ function pad2_(v) {
   return s.length >= 2 ? s : '0' + s;
 }
 
-/** '1,226円' や 1226 を数値へ。数値化できなければ 0 */
-/** 空欄か（0 や false は「空欄ではない」と判定する） */
+// '1,226円' や 1226 を数値へ。数値化できなければ 0
+// 空欄か（0 や false は「空欄ではない」と判定する）
 function isBlank_(value) {
   return value === null || value === undefined || String(value).trim() === '';
 }
@@ -801,7 +779,7 @@ function toNumber_(value) {
   return isFinite(n) ? n : 0;
 }
 
-/** チェックボックス／文字列のどちらでも真偽値にする */
+// チェックボックス／文字列のどちらでも真偽値にする
 function toBool_(value) {
   if (typeof value === 'boolean') return value;
   var s = String(value == null ? '' : value).trim().toLowerCase();
@@ -812,7 +790,7 @@ function round2_(n) {
   return Math.round(n * 100) / 100;
 }
 
-/** 'HH:mm' を0時からの分に変換 */
+// 'HH:mm' を0時からの分に変換
 function hhmmToMinutes_(hhmm) {
   var m = String(hhmm).match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
@@ -822,27 +800,25 @@ function hhmmToMinutes_(hhmm) {
   return h * 60 + mi;
 }
 
-/** 'yyyy-MM-dd' から年を取り出す。取れなければ null */
+// 'yyyy-MM-dd' から年を取り出す。取れなければ null
 function yearOfDateString_(dateStr) {
   var m = String(dateStr).match(/(\d{4})/);
   return m ? Number(m[1]) : null;
 }
 
-/** 'yyyy-MM-dd' から 'yyyy-MM' を取り出す。取れなければ null */
+// 'yyyy-MM-dd' から 'yyyy-MM' を取り出す。取れなければ null
 function yearMonthOfDateString_(dateStr) {
   var m = String(dateStr).match(/^(\d{4})-(\d{2})/);
   return m ? m[1] + '-' + m[2] : null;
 }
 
-/** 金額表示（例: 1,230,000円） */
+// 金額表示（例: 1,230,000円）
 function yen_(n) {
   return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円';
 }
 
-/**
- * スクリプトのタイムゾーンが想定と違うときの警告文（問題なければ null）。
- * ここがずれていると毎日23:30のトリガーが日本時間の別の時刻に動いてしまう。
- */
+// スクリプトのタイムゾーンが想定と違うときの警告文（問題なければ null）。
+// ここがずれていると毎日23:30のトリガーが日本時間の別の時刻に動いてしまう。
 function timeZoneWarning_() {
   var scriptTz;
   try {
@@ -860,13 +836,13 @@ function timeZoneWarning_() {
   );
 }
 
-/** 集計対象年 */
+// 集計対象年
 function resolveTargetYear_(today) {
   if (CONFIG.targetYear) return CONFIG.targetYear;
   return Number(formatDate_(today).slice(0, 4));
 }
 
-/** 'yyyy-MM-dd' を '8/28(金)' の形にする */
+// 'yyyy-MM-dd' を '8/28(金)' の形にする
 function formatShortDate_(dateStr) {
   var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return String(dateStr);
@@ -875,7 +851,7 @@ function formatShortDate_(dateStr) {
   return Number(m[2]) + '/' + Number(m[3]) + '(' + week + ')';
 }
 
-/** 'yyyy-MM' の月を n ヶ月進める */
+// 'yyyy-MM' の月を n ヶ月進める
 function addMonths_(yearMonth, n) {
   var m = String(yearMonth).match(/^(\d{4})-(\d{2})$/);
   if (!m) return yearMonth;
@@ -883,7 +859,7 @@ function addMonths_(yearMonth, n) {
   return Math.floor(total / 12) + '-' + pad2_((total % 12) + 1);
 }
 
-/** 'yyyy-MM-dd' が属する週（月曜始まり）の月曜日を返す */
+// 'yyyy-MM-dd' が属する週（月曜始まり）の月曜日を返す
 function weekStartOf_(dateStr) {
   var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
@@ -895,7 +871,7 @@ function weekStartOf_(dateStr) {
   );
 }
 
-/** 'yyyy-MM-dd' を n 日進める */
+// 'yyyy-MM-dd' を n 日進める
 function addDays_(dateStr, n) {
   var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return dateStr;
@@ -904,12 +880,10 @@ function addDays_(dateStr, n) {
   return date.getFullYear() + '-' + pad2_(date.getMonth() + 1) + '-' + pad2_(date.getDate());
 }
 
-/* ======================= Sheets.js ======================= */
+// ======================= Sheets.js =======================
 
-/**
- * スプレッドシート（データ保存先）まわり。
- * 各テーブルを1枚のスプレッドシートのシート（タブ）として持つ。
- */
+// スプレッドシート（データ保存先）まわり。
+// 各テーブルを1枚のスプレッドシートのシート（タブ）として持つ。
 
 var SHEETS = {
   CALENDAR: '勤務明細',
@@ -922,10 +896,8 @@ var SHEETS = {
   LOG: '実行ログ'
 };
 
-/**
- * 以前の英語シート名。既存のスプレッドシートを開いたときに日本語名へ付け替える
- * （中身はそのまま引き継ぐ）。
- */
+// 以前の英語シート名。既存のスプレッドシートを開いたときに日本語名へ付け替える
+// （中身はそのまま引き継ぐ）。
 var LEGACY_SHEET_NAMES = {};
 LEGACY_SHEET_NAMES[SHEETS.CALENDAR] = 'calendar_income_entries';
 LEGACY_SHEET_NAMES[SHEETS.MANUAL] = 'manual_income_entries';
@@ -933,7 +905,7 @@ LEGACY_SHEET_NAMES[SHEETS.LIMITS] = 'company_hour_limits';
 LEGACY_SHEET_NAMES[SHEETS.WALLS] = 'wall_thresholds';
 LEGACY_SHEET_NAMES[SHEETS.RECONCILE] = 'monthly_reconciliation';
 
-/** 各シートの列定義（この順にヘッダー行を作る） */
+// 各シートの列定義（この順にヘッダー行を作る）
 var SCHEMA = {};
 SCHEMA[SHEETS.CALENDAR] = [
   'id',
@@ -1000,11 +972,9 @@ SCHEMA[SHEETS.RECONCILE] = [
 ];
 SCHEMA[SHEETS.LOG] = ['executed_at', 'kind', 'level', 'message'];
 
-/**
- * シートの1行目に表示する見出し（日本語）。
- * 列の並びは SCHEMA と同じで、読み書きは位置で行うため、
- * ここを変えても処理には影響しない（表示だけが変わる）。
- */
+// シートの1行目に表示する見出し（日本語）。
+// 列の並びは SCHEMA と同じで、読み書きは位置で行うため、
+// ここを変えても処理には影響しない（表示だけが変わる）。
 var HEADER_LABELS = {};
 HEADER_LABELS[SHEETS.CALENDAR] = [
   'ID',
@@ -1060,17 +1030,15 @@ HEADER_LABELS[SHEETS.RECONCILE] = [
 ];
 HEADER_LABELS[SHEETS.LOG] = ['実行日時', '種別', 'レベル', '内容'];
 
-/** 収入区分（手入力の収入シートの「区分」に入れられる値） */
+// 収入区分（手入力の収入シートの「区分」に入れられる値）
 var INCOME_CATEGORY = {
   SALARY: '給与所得',
   BUSINESS: '事業所得',
   MISC: '雑所得'
 };
 
-/**
- * 日付・時刻として自動変換されると困る列（ロケールによって表示や値が変わるため、
- * シート作成時に「書式なしテキスト」にしておく）
- */
+// 日付・時刻として自動変換されると困る列（ロケールによって表示や値が変わるため、
+// シート作成時に「書式なしテキスト」にしておく）
 var TEXT_COLUMNS = {};
 TEXT_COLUMNS[SHEETS.CALENDAR] = ['date', 'start_time', 'end_time', 'updated_at', 'paid_on'];
 TEXT_COLUMNS[SHEETS.MANUAL] = ['period', 'updated_at'];
@@ -1080,11 +1048,9 @@ TEXT_COLUMNS[SHEETS.WALLS] = ['last_updated'];
 TEXT_COLUMNS[SHEETS.RECONCILE] = ['year_month', 'entered_at'];
 TEXT_COLUMNS[SHEETS.LOG] = ['executed_at'];
 
-/**
- * 操作対象のスプレッドシートを返す。
- * コンテナバインド（スプレッドシートの「拡張機能 > Apps Script」から作成）なら
- * そのスプレッドシート、スタンドアロンならスクリプトプロパティ SPREADSHEET_ID を使う。
- */
+// 操作対象のスプレッドシートを返す。
+// コンテナバインド（スプレッドシートの「拡張機能 > Apps Script」から作成）なら
+// そのスプレッドシート、スタンドアロンならスクリプトプロパティ SPREADSHEET_ID を使う。
 function getSpreadsheet_() {
   var active = SpreadsheetApp.getActiveSpreadsheet();
   if (active) return active;
@@ -1098,43 +1064,39 @@ function getSpreadsheet_() {
   return SpreadsheetApp.openById(id);
 }
 
-/**
- * 1回の実行の中だけ有効なキャッシュ。
- *
- * Apps Script はシートの読み書き1回ごとに往復が発生し、これが体感速度の大半を占める。
- * 同じ実行の中で同じシートを何度も読み直さないようにするためのもの。
- * Apps Script は実行のたびにスクリプトを読み直すので、実行をまたいで残ることはない。
- * 書き込みを行った表は必ず invalidateTable_ で捨てること。
- */
+// 1回の実行の中だけ有効なキャッシュ。
+//
+// Apps Script はシートの読み書き1回ごとに往復が発生し、これが体感速度の大半を占める。
+// 同じ実行の中で同じシートを何度も読み直さないようにするためのもの。
+// Apps Script は実行のたびにスクリプトを読み直すので、実行をまたいで残ることはない。
+// 書き込みを行った表は必ず invalidateTable_ で捨てること。
 var SHEET_CACHE = {};
 var TABLE_CACHE = {};
 
-/** 表のキャッシュを捨てる（name 省略で全部） */
+// 表のキャッシュを捨てる（name 省略で全部）
 function invalidateTable_(name) {
   if (name === undefined) TABLE_CACHE = {};
   else delete TABLE_CACHE[name];
 }
 
-/** シート取得・表読み込みのキャッシュをまとめて捨てる */
+// シート取得・表読み込みのキャッシュをまとめて捨てる
 function invalidateSheetCaches_() {
   SHEET_CACHE = {};
   TABLE_CACHE = {};
 }
 
-/**
- * 1回の実行の始まりを宣言する。キャッシュを全部捨てて、必ず最新のデータから始める。
- *
- * Apps Script は実行ごとにスクリプトを読み直すので実際はキャッシュも消えているが、
- * 明示しておくことで「キャッシュが実行をまたいで残らない」ことを保証し、
- * テストでも本番と同じ条件で測れるようにする。
- */
+// 1回の実行の始まりを宣言する。キャッシュを全部捨てて、必ず最新のデータから始める。
+//
+// Apps Script は実行ごとにスクリプトを読み直すので実際はキャッシュも消えているが、
+// 明示しておくことで「キャッシュが実行をまたいで残らない」ことを保証し、
+// テストでも本番と同じ条件で測れるようにする。
 function beginExecution_() {
   invalidateSheetCaches_();
   invalidateCalendarCache_();
   invalidateHolidayCache_();
 }
 
-/** シートを取得（無ければヘッダー付きで作成） */
+// シートを取得（無ければヘッダー付きで作成）
 function getSheet_(name) {
   if (SHEET_CACHE[name]) return SHEET_CACHE[name];
   var ss = getSpreadsheet_();
@@ -1158,13 +1120,11 @@ function getSheet_(name) {
   return sheet;
 }
 
-/**
- * シートの構成（名前・見出し・初期データ）のバージョン。
- * 列や壁を増やしたらこの値を上げること。次回の実行で移行処理が1度だけ走る。
- */
+// シートの構成（名前・見出し・初期データ）のバージョン。
+// 列や壁を増やしたらこの値を上げること。次回の実行で移行処理が1度だけ走る。
 var SCHEMA_VERSION = '2026-08-30-paycycle';
 
-/** スクリプトプロパティ（使えない環境では null） */
+// スクリプトプロパティ（使えない環境では null）
 function getScriptProperties_() {
   try {
     return PropertiesService.getScriptProperties();
@@ -1173,17 +1133,15 @@ function getScriptProperties_() {
   }
 }
 
-/**
- * 全シートを用意し、初期データ（設定値）を流し込む。
- *
- * 名前の付け替え・見出しの貼り直し・壁の初期投入は、毎回やると
- * シートの読み書きが十数回増えてアプリの表示が目に見えて遅くなる。
- * 一度済ませたらスクリプトプロパティに記録し、SCHEMA_VERSION が
- * 変わったときだけやり直す。
- *
- * options.force を true にすると記録を無視して必ず全部やり直す
- * （メニューの「① 初期セットアップ」はこちらを使う）。
- */
+// 全シートを用意し、初期データ（設定値）を流し込む。
+//
+// 名前の付け替え・見出しの貼り直し・壁の初期投入は、毎回やると
+// シートの読み書きが十数回増えてアプリの表示が目に見えて遅くなる。
+// 一度済ませたらスクリプトプロパティに記録し、SCHEMA_VERSION が
+// 変わったときだけやり直す。
+//
+// options.force を true にすると記録を無視して必ず全部やり直す
+// （メニューの「① 初期セットアップ」はこちらを使う）。
 function ensureSheets_(options) {
   var ss = getSpreadsheet_();
   var props = getScriptProperties_();
@@ -1212,7 +1170,7 @@ function ensureSheets_(options) {
   if (props) props.setProperty('SCHEMA_VERSION', SCHEMA_VERSION);
 }
 
-/** 英語名で作られた既存のシートを日本語名に付け替える（中身はそのまま） */
+// 英語名で作られた既存のシートを日本語名に付け替える（中身はそのまま）
 function migrateLegacySheetNames_() {
   var ss = getSpreadsheet_();
   Object.keys(LEGACY_SHEET_NAMES).forEach(function (current) {
@@ -1222,7 +1180,7 @@ function migrateLegacySheetNames_() {
   });
 }
 
-/** 1行目の見出しを日本語に揃える（英語見出しのまま作られたシートの移行用） */
+// 1行目の見出しを日本語に揃える（英語見出しのまま作られたシートの移行用）
 function refreshHeaderLabels_() {
   Object.keys(HEADER_LABELS).forEach(function (name) {
     var labels = HEADER_LABELS[name];
@@ -1239,11 +1197,9 @@ function refreshHeaderLabels_() {
   });
 }
 
-/**
- * CONFIG.walls.thresholds にあって、まだ「壁の設定」シートに無い壁だけを追加する。
- * 名前（例: '150万円'）で照合するので、既にシート上で編集済みの行には触らない。
- * これにより、後から壁の種類が増えたときも初期セットアップの再実行だけで反映できる。
- */
+// CONFIG.walls.thresholds にあって、まだ「壁の設定」シートに無い壁だけを追加する。
+// 名前（例: '150万円'）で照合するので、既にシート上で編集済みの行には触らない。
+// これにより、後から壁の種類が増えたときも初期セットアップの再実行だけで反映できる。
 function seedWallThresholds_() {
   var existing = {};
   readTable_(SHEETS.WALLS).rows.forEach(function (r) {
@@ -1285,10 +1241,8 @@ function seedWallThresholds_() {
   appendRows_(SHEETS.WALLS, rows);
 }
 
-/**
- * シートを読み込み、{ headers, rows } を返す。rows は列名をキーにしたオブジェクトの配列。
- * 日付・時刻セルは文字列に正規化して返す（表示形式の違いを吸収するため）。
- */
+// シートを読み込み、{ headers, rows } を返す。rows は列名をキーにしたオブジェクトの配列。
+// 日付・時刻セルは文字列に正規化して返す（表示形式の違いを吸収するため）。
 function readTable_(name) {
   if (TABLE_CACHE[name]) return TABLE_CACHE[name];
   var sheet = getSheet_(name);
@@ -1315,7 +1269,7 @@ function readTable_(name) {
   return TABLE_CACHE[name];
 }
 
-/** オブジェクト配列をシート末尾に追記 */
+// オブジェクト配列をシート末尾に追記
 function appendRows_(name, objects) {
   if (!objects || objects.length === 0) return;
   var sheet = getSheet_(name);
@@ -1329,10 +1283,8 @@ function appendRows_(name, objects) {
   invalidateTable_(name);
 }
 
-/**
- * keyField をキーに更新／追加する。
- * mergeFn(existingRow, newObject) で既存値を引き継げる（reconciled の保持など）。
- */
+// keyField をキーに更新／追加する。
+// mergeFn(existingRow, newObject) で既存値を引き継げる（reconciled の保持など）。
 function upsertRows_(name, objects, keyField, mergeFn) {
   if (!objects || objects.length === 0) return { updated: 0, inserted: 0 };
   var sheet = getSheet_(name);
@@ -1371,7 +1323,7 @@ function upsertRows_(name, objects, keyField, mergeFn) {
   return { updated: updated, inserted: toAppend.length, unchanged: unchanged };
 }
 
-/** 既存の行と、これから書く行が同じ内容か（updated_at は比較しない） */
+// 既存の行と、これから書く行が同じ内容か（updated_at は比較しない）
 function isSameRow_(headers, existingRow, line) {
   for (var i = 0; i < headers.length; i++) {
     var header = headers[i];
@@ -1386,7 +1338,7 @@ function isSameRow_(headers, existingRow, line) {
   return true;
 }
 
-/** 行番号を指定して1行を書き換える（手入力された行をそのまま更新するときに使う） */
+// 行番号を指定して1行を書き換える（手入力された行をそのまま更新するときに使う）
 function writeRowAt_(name, rowIndex, obj) {
   var sheet = getSheet_(name);
   var headers = SCHEMA[name];
@@ -1397,7 +1349,7 @@ function writeRowAt_(name, rowIndex, obj) {
   invalidateTable_(name);
 }
 
-/** 実行ログに1行追記（直近500件だけ残す） */
+// 実行ログに1行追記（直近500件だけ残す）
 function writeLog_(kind, level, message) {
   var sheet = getSheet_(SHEETS.LOG);
   sheet.appendRow([formatDateTime_(new Date()), kind, level, message]);
@@ -1406,37 +1358,33 @@ function writeLog_(kind, level, message) {
   invalidateTable_(SHEETS.LOG);
 }
 
-/* ======================= Parser.js ======================= */
+// ======================= Parser.js =======================
 
-/**
- * カレンダー予定タイトルの解析
- *
- * 想定フォーマット:
- *   [会社名] 開始時刻-終了時刻 休憩Xh 時給Y円
- *   例) [Kakedas] 09:00-18:00 休憩1h 時給1226円
- *   例) [バイトレ] 13:00-17:00 休憩なし 時給1700円
- *
- * ・会社名は [ ] で囲む（勤務予定の目印。無い予定は勤務以外とみなして無視する）
- * ・休憩が無い場合は「休憩なし」と明記する
- * ・時給は末尾に「円」付き
- */
+// カレンダー予定タイトルの解析
+//
+// 想定フォーマット:
+//   [会社名] 開始時刻-終了時刻 休憩Xh 時給Y円
+//   例) [Kakedas] 09:00-18:00 休憩1h 時給1226円
+//   例) [バイトレ] 13:00-17:00 休憩なし 時給1700円
+//
+// ・会社名は [ ] で囲む（勤務予定の目印。無い予定は勤務以外とみなして無視する）
+// ・休憩が無い場合は「休憩なし」と明記する
+// ・時給は末尾に「円」付き
 
-/** 全角→半角などの表記ゆれを吸収する */
+// 全角→半角などの表記ゆれを吸収する
 function normalizeTitle_(rawTitle) {
   var s = String(rawTitle == null ? '' : rawTitle);
   if (s.normalize) s = s.normalize('NFKC');
   return s.replace(/[　\s]+/g, ' ').trim();
 }
 
-/**
- * タイトルを解析する。
- * 戻り値: {
- *   ok, kind: 'work'|'skip'|'error', reason, warnings[],
- *   companyName, startTime, endTime, hasTimeRange, breakHours, hourlyWage, dailyWage,
- *   allowance, hasFixedAmount, fixedAmount, normalizedTitle
- * }
- * 時給が書いてあれば時給、無ければ日給を読む（dailyWage が 0 でなければ日給の勤務）。
- */
+// タイトルを解析する。
+// 戻り値: {
+//   ok, kind: 'work'|'skip'|'error', reason, warnings[],
+//   companyName, startTime, endTime, hasTimeRange, breakHours, hourlyWage, dailyWage,
+//   allowance, hasFixedAmount, fixedAmount, normalizedTitle
+// }
+// 時給が書いてあれば時給、無ければ日給を読む（dailyWage が 0 でなければ日給の勤務）。
 function parseWorkEventTitle_(rawTitle) {
   var title = normalizeTitle_(rawTitle);
   var res = {
@@ -1535,15 +1483,13 @@ function parseWorkEventTitle_(rawTitle) {
   return res;
 }
 
-/**
- * 手当（時給とは別に、その勤務1回につき出る固定額）を読み取る。
- *
- * 単発バイトでは就業先ごとに交通費・食事補助などが出るため、時給とは
- * 別建てで合算できるようにしている。複数書いてあれば全部足す。
- *
- * 対応: 手当1000円 / 交通費500円 / 手当+1000円 / 食事手当500円 など
- * 「手当なし」と書いた場合は0。
- */
+// 手当（時給とは別に、その勤務1回につき出る固定額）を読み取る。
+//
+// 単発バイトでは就業先ごとに交通費・食事補助などが出るため、時給とは
+// 別建てで合算できるようにしている。複数書いてあれば全部足す。
+//
+// 対応: 手当1000円 / 交通費500円 / 手当+1000円 / 食事手当500円 など
+// 「手当なし」と書いた場合は0。
 function parseAllowance_(title) {
   if (/(?:手当|交通費)\s*(?:なし|ナシ|無し)/.test(title)) return 0;
 
@@ -1557,14 +1503,12 @@ function parseAllowance_(title) {
   return total;
 }
 
-/**
- * その日の支給額（時給×時間の計算を上書きする、確定した金額）を読み取る。
- *
- * 残業がついた・特別手当が出た・端数の扱いが会社独自、といった理由で
- * 時給×時間と実際の支給額がずれる日のためのもの。書いてあればそれが優先される。
- *
- * 対応: 支給18500円 / 支給額18,500円 / 給与18500円 / 合計18500円
- */
+// その日の支給額（時給×時間の計算を上書きする、確定した金額）を読み取る。
+//
+// 残業がついた・特別手当が出た・端数の扱いが会社独自、といった理由で
+// 時給×時間と実際の支給額がずれる日のためのもの。書いてあればそれが優先される。
+//
+// 対応: 支給18500円 / 支給額18,500円 / 給与18500円 / 合計18500円
 function parseFixedAmount_(title) {
   var match = title.match(/(?:支給額|支給|給与|合計)\s*\+?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*円?/);
   if (!match) return { found: false, amount: 0 };
@@ -1573,10 +1517,8 @@ function parseFixedAmount_(title) {
   return { found: true, amount: Math.round(amount) };
 }
 
-/**
- * 休憩時間の表記を時間(小数)に変換する。
- * 対応: 休憩なし / 休憩無し / 休憩1h / 休憩1.5h / 休憩1時間 / 休憩1時間30分 / 休憩90分
- */
+// 休憩時間の表記を時間(小数)に変換する。
+// 対応: 休憩なし / 休憩無し / 休憩1h / 休憩1.5h / 休憩1時間 / 休憩1時間30分 / 休憩90分
 function parseBreakHours_(title) {
   if (/休憩\s*(?:なし|ナシ|無し|0\s*(?:h|時間|分)?)(?![0-9.])/i.test(title)) {
     return { found: true, hours: 0 };
@@ -1591,20 +1533,16 @@ function parseBreakHours_(title) {
   return { found: false, hours: 0 };
 }
 
-/* ======================= Calc.js ======================= */
+// ======================= Calc.js =======================
 
-/**
- * 計算ロジック
- *
- * 金額はすべて額面（源泉徴収前の総支給額）で扱う。
- * 源泉徴収された分は確定申告で還付される前払いに過ぎず、
- * 監視対象は「壁の基準を満たすかどうか」であって手元に残る金額ではないため。
- */
+// 計算ロジック
+//
+// 金額はすべて額面（源泉徴収前の総支給額）で扱う。
+// 源泉徴収された分は確定申告で還付される前払いに過ぎず、
+// 監視対象は「壁の基準を満たすかどうか」であって手元に残る金額ではないため。
 
-/**
- * 実働時間 = (終了時刻 - 開始時刻) - 休憩時間
- * 終了時刻が開始時刻より小さい場合は日をまたいだ勤務とみなす。
- */
+// 実働時間 = (終了時刻 - 開始時刻) - 休憩時間
+// 終了時刻が開始時刻より小さい場合は日をまたいだ勤務とみなす。
 function computeWorkedHours_(startTime, endTime, breakHours) {
   var start = hhmmToMinutes_(startTime);
   var end = hhmmToMinutes_(endTime);
@@ -1615,16 +1553,14 @@ function computeWorkedHours_(startTime, endTime, breakHours) {
   return net / 60;
 }
 
-/**
- * その日の推定収入（額面） = 実働時間 × 時給 ＋ 手当。円未満は四捨五入。
- *
- * 手当は単発バイトで就業先ごとに出る固定額（交通費・食事補助など）。
- * 額面に含まれるものとして時給分に足す。
- *
- * dailyWage（日給）が指定されていれば、時給×時間の代わりに日給を基本給にする。
- * fixedAmount（その日の支給額）が指定されていれば、計算結果ではなくそちらを使う。
- * 残業や会社独自の端数処理で、時給×時間と実際の支給額がずれる日のため。
- */
+// その日の推定収入（額面） = 実働時間 × 時給 ＋ 手当。円未満は四捨五入。
+//
+// 手当は単発バイトで就業先ごとに出る固定額（交通費・食事補助など）。
+// 額面に含まれるものとして時給分に足す。
+//
+// dailyWage（日給）が指定されていれば、時給×時間の代わりに日給を基本給にする。
+// fixedAmount（その日の支給額）が指定されていれば、計算結果ではなくそちらを使う。
+// 残業や会社独自の端数処理で、時給×時間と実際の支給額がずれる日のため。
 function computeEstimatedAmount_(workedHours, hourlyWage, allowance, fixedAmount, dailyWage) {
   // その日の支給額が分かっている場合（残業がついた日など）は、それをそのまま使う
   var fixed = Number(fixedAmount || 0);
@@ -1635,7 +1571,7 @@ function computeEstimatedAmount_(workedHours, hourlyWage, allowance, fixedAmount
   return base + Math.round(Number(allowance || 0));
 }
 
-/** 給与所得控除（CONFIG.salaryDeduction の表に従う） */
+// 給与所得控除（CONFIG.salaryDeduction の表に従う）
 function computeSalaryDeduction_(salaryRevenue) {
   var revenue = Number(salaryRevenue || 0);
   if (revenue <= 0) return 0;
@@ -1654,14 +1590,12 @@ function computeSalaryDeduction_(salaryRevenue) {
   return Math.min(deduction, revenue);
 }
 
-/**
- * 年間の収入・所得を集計する。
- * 給与所得分（カレンダー由来 + 手入力の給与所得）と事業所得分・雑所得分を分けて管理する。
- *
- * 給与は「支給日」が属する年の収入として数える（所得税基本通達36-9）。
- * resolvePayment(勤務先, 勤務日) が支給日を返せばそれを使い、
- * 返せなければ勤務日で数える（給与サイクル未設定のときの保険）。
- */
+// 年間の収入・所得を集計する。
+// 給与所得分（カレンダー由来 + 手入力の給与所得）と事業所得分・雑所得分を分けて管理する。
+//
+// 給与は「支給日」が属する年の収入として数える（所得税基本通達36-9）。
+// resolvePayment(勤務先, 勤務日) が支給日を返せばそれを使い、
+// 返せなければ勤務日で数える（給与サイクル未設定のときの保険）。
 function aggregateAnnual_(calendarRows, manualRows, targetYear, resolvePayment) {
   var salaryRevenue = 0;
   var calendarRevenue = 0;
@@ -1731,11 +1665,11 @@ function aggregateAnnual_(calendarRows, manualRows, targetYear, resolvePayment) 
     targetYear: targetYear,
     calendarRevenue: calendarRevenue,
     allowanceTotal: allowanceTotal,
-    /** 支給日ベースで集計したか */
+    // 支給日ベースで集計したか
     byPayDate: usePayDate,
-    /** 前年に働いて今年支給された分 */
+    // 前年に働いて今年支給された分
     carriedInRevenue: carriedIn,
-    /** 今年働いて翌年に支給される分 */
+    // 今年働いて翌年に支給される分
     carriedOutRevenue: carriedOut,
     manualSalaryRevenue: manualSalaryRevenue,
     salaryRevenue: salaryRevenue,
@@ -1743,19 +1677,19 @@ function aggregateAnnual_(calendarRows, manualRows, targetYear, resolvePayment) 
     businessExpenses: business.expenses,
     miscRevenue: misc.revenue,
     miscExpenses: misc.expenses,
-    /** 壁の判定に使う年間収入合計（額面） */
+    // 壁の判定に使う年間収入合計（額面）
     totalRevenue: salaryRevenue + business.revenue + misc.revenue,
     salaryDeduction: salaryDeduction,
     salaryIncome: salaryIncome,
     businessIncome: businessIncome,
     miscIncome: miscIncome,
-    /** 収入額そのものとは別の数値。税金の壁の判定に使う */
+    // 収入額そのものとは別の数値。税金の壁の判定に使う
     totalIncome: salaryIncome + businessIncome + miscIncome,
     warnings: warnings
   };
 }
 
-/** 壁までの残りを計算する */
+// 壁までの残りを計算する
 function evaluateWalls_(wallRows, totalRevenue, targetYear) {
   return wallRows
     .filter(function (w) {
@@ -1782,10 +1716,8 @@ function evaluateWalls_(wallRows, totalRevenue, targetYear) {
     });
 }
 
-/**
- * 会社ごとの当月実働時間を集計し、暫定上限（既定120時間）と比較する。
- * 80%で「注意」、100%で「警告」。
- */
+// 会社ごとの当月実働時間を集計し、暫定上限（既定120時間）と比較する。
+// 80%で「注意」、100%で「警告」。
 function aggregateMonthlyHours_(calendarRows, limitRows, yearMonth) {
   var limits = readCompanyLimits_(limitRows);
 
@@ -1824,7 +1756,7 @@ function aggregateMonthlyHours_(calendarRows, limitRows, yearMonth) {
     });
 }
 
-/** 勤務先ごとの上限設定を読む */
+// 勤務先ごとの上限設定を読む
 function readCompanyLimits_(limitRows) {
   var limits = {};
   (limitRows || []).forEach(function (r) {
@@ -1857,10 +1789,8 @@ function statusForRatio_(ratio) {
   return '正常';
 }
 
-/**
- * 週の上限がある勤務先について、直近の週ごとの実働時間を集計する。
- * 「正社員の週所定労働時間の4分の3」のように週単位で基準が示された場合に使う。
- */
+// 週の上限がある勤務先について、直近の週ごとの実働時間を集計する。
+// 「正社員の週所定労働時間の4分の3」のように週単位で基準が示された場合に使う。
 function aggregateWeeklyHours_(calendarRows, limitRows, today, weeks) {
   var limits = readCompanyLimits_(limitRows);
   var targets = Object.keys(limits).filter(function (name) {
@@ -1907,10 +1837,8 @@ function aggregateWeeklyHours_(calendarRows, limitRows, today, weeks) {
   return result;
 }
 
-/**
- * 「月◯時間以上が◯ヶ月連続」という条件の勤務先を判定する。
- * 連続月数が1の勤務先（単月判定）は対象外。
- */
+// 「月◯時間以上が◯ヶ月連続」という条件の勤務先を判定する。
+// 連続月数が1の勤務先（単月判定）は対象外。
 function evaluateConsecutiveMonths_(calendarRows, limitRows, today, extraHours) {
   var limits = readCompanyLimits_(limitRows);
   var currentMonth = formatYearMonth_(today);
@@ -1983,7 +1911,7 @@ function evaluateConsecutiveMonths_(calendarRows, limitRows, today, extraHours) 
   return result;
 }
 
-/** 月次の答え合わせ（給与明細の実額 vs カレンダー推定額）の判定 */
+// 月次の答え合わせ（給与明細の実額 vs カレンダー推定額）の判定
 function evaluateReconciliation_(estimatedAmount, actualAmount) {
   var diff = Number(actualAmount) - Number(estimatedAmount);
   var rate = Number(estimatedAmount) > 0 ? diff / Number(estimatedAmount) : 0;
@@ -1996,18 +1924,16 @@ function evaluateReconciliation_(estimatedAmount, actualAmount) {
   };
 }
 
-/* ======================= Holidays.js ======================= */
+// ======================= Holidays.js =======================
 
-/**
- * 日本の祝日
- *
- * 支給日が休日にあたったときの前倒し判定に使う。
- * Googleが公開している「日本の祝日」カレンダーから取り込み、
- * スクリプトのプロパティに保存して使い回す。
- *
- * 画面表示のときはカレンダーに触らない（起動を遅くしないため）。
- * 保存済みのものが無い場合は土日だけで判定し、その旨を暫定として扱う。
- */
+// 日本の祝日
+//
+// 支給日が休日にあたったときの前倒し判定に使う。
+// Googleが公開している「日本の祝日」カレンダーから取り込み、
+// スクリプトのプロパティに保存して使い回す。
+//
+// 画面表示のときはカレンダーに触らない（起動を遅くしないため）。
+// 保存済みのものが無い場合は土日だけで判定し、その旨を暫定として扱う。
 
 var HOLIDAY_PROP_KEY = 'JP_HOLIDAYS';
 var HOLIDAY_CACHE = null;
@@ -2016,10 +1942,8 @@ function invalidateHolidayCache_() {
   HOLIDAY_CACHE = null;
 }
 
-/**
- * 保存済みの祝日を読む。カレンダーには触らない。
- * 戻り値: { map: {'yyyy-MM-dd': 名前}, years: [..], fetchedAt, available }
- */
+// 保存済みの祝日を読む。カレンダーには触らない。
+// 戻り値: { map: {'yyyy-MM-dd': 名前}, years: [..], fetchedAt, available }
 function readStoredHolidays_() {
   if (HOLIDAY_CACHE) return HOLIDAY_CACHE;
   var empty = { map: {}, years: [], fetchedAt: '', available: false };
@@ -2050,7 +1974,7 @@ function readStoredHolidays_() {
   return HOLIDAY_CACHE;
 }
 
-/** 祝日の取り込みが必要か（対象の年が入っていない、または古い） */
+// 祝日の取り込みが必要か（対象の年が入っていない、または古い）
 function holidaysNeedRefresh_(today) {
   var stored = readStoredHolidays_();
   if (!stored.available) return true;
@@ -2062,10 +1986,8 @@ function holidaysNeedRefresh_(today) {
   return !(age >= 0) || age > CONFIG.holidays.refreshDays;
 }
 
-/**
- * 祝日カレンダーから取り込んで保存する。カレンダーを1回読む。
- * 画面表示ではなく、カレンダー同期・毎晩の実行からのみ呼ぶこと。
- */
+// 祝日カレンダーから取り込んで保存する。カレンダーを1回読む。
+// 画面表示ではなく、カレンダー同期・毎晩の実行からのみ呼ぶこと。
 function refreshHolidays_(today, force) {
   if (!force && !holidaysNeedRefresh_(today)) return readStoredHolidays_();
   var calendar;
@@ -2104,12 +2026,12 @@ function refreshHolidays_(today, force) {
   return HOLIDAY_CACHE;
 }
 
-/** 判定に使う祝日表（保存済みのもの。無ければ空） */
+// 判定に使う祝日表（保存済みのもの。無ければ空）
 function holidayMap_() {
   return readStoredHolidays_().map;
 }
 
-/** メニューから手動で取り込み直す（末尾に _ を付けるとメニューから呼べなくなる） */
+// メニューから手動で取り込み直す（末尾に _ を付けるとメニューから呼べなくなる）
 function refreshHolidaysFromMenu() {
   invalidateHolidayCache_();
   var result = refreshHolidays_(new Date(), true);
@@ -2122,28 +2044,24 @@ function refreshHolidaysFromMenu() {
   );
 }
 
-/* ======================= PayCycle.js ======================= */
+// ======================= PayCycle.js =======================
 
-/**
- * 給与サイクル（締め日と支給日）
- *
- * 会社によって「いつまでに働いた分が、いつ振り込まれるか」が違う。
- * 年収の壁の判定は、税法上「支給日」が属する年で数えるため
- * （所得税基本通達36-9）、勤務日ではなく支給日で集計する。
- *
- * 例: 21日〆・翌月10日払いの会社で 3/21〜4/20 に働いた分は、5/10 に支給される。
- *     5/10 が日曜なら、前倒しで 5/8（金）になる。
- */
+// 給与サイクル（締め日と支給日）
+//
+// 会社によって「いつまでに働いた分が、いつ振り込まれるか」が違う。
+// 年収の壁の判定は、税法上「支給日」が属する年で数えるため
+// （所得税基本通達36-9）、勤務日ではなく支給日で集計する。
+//
+// 例: 21日〆・翌月10日払いの会社で 3/21〜4/20 に働いた分は、5/10 に支給される。
+//     5/10 が日曜なら、前倒しで 5/8（金）になる。
 
-/** 支給日が休日にあたったときの動かし方 */
+// 支給日が休日にあたったときの動かし方
 var PAY_SHIFT_EARLIER = '前倒し';
 var PAY_SHIFT_LATER = '後ろ倒し';
 var PAY_SHIFT_NONE = 'そのまま';
 
-/**
- * 会社の給与サイクル設定を読む。
- * シートに無い勤務先は CONFIG.payCycle.fallback を暫定値として使う。
- */
+// 会社の給与サイクル設定を読む。
+// シートに無い勤務先は CONFIG.payCycle.fallback を暫定値として使う。
 function readPayCycles_() {
   var map = {};
   readTable_(SHEETS.PAYCYCLE).rows.forEach(function (r) {
@@ -2166,7 +2084,7 @@ function readPayCycles_() {
   return map;
 }
 
-/** 勤務先の給与サイクル。登録が無ければ暫定値を返す */
+// 勤務先の給与サイクル。登録が無ければ暫定値を返す
 function payCycleFor_(cycles, companyName) {
   var name = String(companyName || '').trim();
   if (cycles && cycles[name]) return cycles[name];
@@ -2183,12 +2101,12 @@ function payCycleFor_(cycles, companyName) {
   };
 }
 
-/** その月の日数 */
+// その月の日数
 function daysInMonth_(year, month1to12) {
   return new Date(year, month1to12, 0).getDate();
 }
 
-/** 年・月・日から 'yyyy-MM-dd'。日がその月に無ければ月末に丸める（31日〆＝月末など） */
+// 年・月・日から 'yyyy-MM-dd'。日がその月に無ければ月末に丸める（31日〆＝月末など）
 function clampedDateString_(year, month1to12, day) {
   var total = year * 12 + (month1to12 - 1);
   var y = Math.floor(total / 12);
@@ -2198,10 +2116,8 @@ function clampedDateString_(year, month1to12, day) {
   return y + '-' + pad2_(m) + '-' + pad2_(d);
 }
 
-/**
- * 勤務日が属する締め日を返す。
- * cutoffDay が月末を超える指定（31など）なら、その月の月末が締め日になる。
- */
+// 勤務日が属する締め日を返す。
+// cutoffDay が月末を超える指定（31など）なら、その月の月末が締め日になる。
 function cutoffDateFor_(workDate, cutoffDay) {
   var m = String(workDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
@@ -2214,14 +2130,14 @@ function cutoffDateFor_(workDate, cutoffDay) {
   return clampedDateString_(year, month + offset, cutoffDay);
 }
 
-/** 締め日から、休日調整をする前の支給日を返す */
+// 締め日から、休日調整をする前の支給日を返す
 function scheduledPayDate_(cutoffDate, cycle) {
   var m = String(cutoffDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
   return clampedDateString_(Number(m[1]), Number(m[2]) + cycle.payMonthOffset, cycle.payDay);
 }
 
-/** 土日か */
+// 土日か
 function isWeekend_(dateStr) {
   var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return false;
@@ -2229,10 +2145,8 @@ function isWeekend_(dateStr) {
   return day === 0 || day === 6;
 }
 
-/**
- * 支給日が休日にあたっていたら、前後の営業日にずらす。
- * holidays は { 'yyyy-MM-dd': true } の形。空でも土日の判定はできる。
- */
+// 支給日が休日にあたっていたら、前後の営業日にずらす。
+// holidays は { 'yyyy-MM-dd': true } の形。空でも土日の判定はできる。
 function adjustPayDate_(dateStr, shiftRule, shiftOnHoliday, holidays) {
   if (shiftRule === PAY_SHIFT_NONE) return dateStr;
   var step = shiftRule === PAY_SHIFT_LATER ? 1 : -1;
@@ -2246,10 +2160,8 @@ function adjustPayDate_(dateStr, shiftRule, shiftOnHoliday, holidays) {
   return dateStr;
 }
 
-/**
- * 勤務日から支給日を求める。
- * 戻り値: { cutoffDate, scheduledDate, payDate, periodFrom, periodTo, confirmed, cycle }
- */
+// 勤務日から支給日を求める。
+// 戻り値: { cutoffDate, scheduledDate, payDate, periodFrom, periodTo, confirmed, cycle }
 function resolvePayment_(workDate, cycle, holidays) {
   var cutoffDate = cutoffDateFor_(workDate, cycle.cutoffDay);
   if (!cutoffDate) return null;
@@ -2270,7 +2182,7 @@ function resolvePayment_(workDate, cycle, holidays) {
   };
 }
 
-/** 勤務先ごとの支給日を一度に引けるようにした関数を返す（毎回シートを読まないため） */
+// 勤務先ごとの支給日を一度に引けるようにした関数を返す（毎回シートを読まないため）
 function makePaymentResolver_(holidays) {
   var cycles = readPayCycles_();
   var cache = {};
@@ -2283,11 +2195,9 @@ function makePaymentResolver_(holidays) {
   };
 }
 
-/**
- * 勤務明細を支給日ごとにまとめる。
- * 「この日にいくら振り込まれる（振り込まれた）か」を出すためのもの。
- * 戻り値は支給日の古い順。
- */
+// 勤務明細を支給日ごとにまとめる。
+// 「この日にいくら振り込まれる（振り込まれた）か」を出すためのもの。
+// 戻り値は支給日の古い順。
 function aggregatePayments_(calendarRows, resolvePayment, today, targetYear) {
   var todayStr = formatDate_(today);
   var groups = {};
@@ -2332,7 +2242,7 @@ function aggregatePayments_(calendarRows, resolvePayment, today, targetYear) {
     });
 }
 
-/** 支給日ごとの合計（同じ日に複数社から振り込まれる場合をまとめる） */
+// 支給日ごとの合計（同じ日に複数社から振り込まれる場合をまとめる）
 function groupPaymentsByDate_(payments) {
   var byDate = {};
   var order = [];
@@ -2351,16 +2261,14 @@ function groupPaymentsByDate_(payments) {
   });
 }
 
-/**
- * 月ごとの給料（その年の1〜12月）。
- *
- * 同じ勤務でも「働いた月」と「振り込まれる月」がずれるので、両方を出す。
- *   paid   … 支給日の月で数えた額（年収の壁と同じ数え方）
- *   worked … 働いた日の月で数えた額
- * どちらも勤務先ごとの内訳を持つ。
- * 手入力の収入は対象期間が「3〜5月」のように幅を持つため月に割り振れない。
- * 合計がずれないよう unassigned として別に返す。
- */
+// 月ごとの給料（その年の1〜12月）。
+//
+// 同じ勤務でも「働いた月」と「振り込まれる月」がずれるので、両方を出す。
+//   paid   … 支給日の月で数えた額（年収の壁と同じ数え方）
+//   worked … 働いた日の月で数えた額
+// どちらも勤務先ごとの内訳を持つ。
+// 手入力の収入は対象期間が「3〜5月」のように幅を持つため月に割り振れない。
+// 合計がずれないよう unassigned として別に返す。
 function aggregateMonthly_(calendarRows, manualRows, resolvePayment, today, targetYear) {
   var todayStr = formatDate_(today);
   var months = [];
@@ -2439,28 +2347,24 @@ function aggregateMonthly_(calendarRows, manualRows, resolvePayment, today, targ
   return { targetYear: targetYear, currentMonth: formatYearMonth_(today), months: months, unassigned: unassigned };
 }
 
-/* ======================= CalendarSource.js ======================= */
+// ======================= CalendarSource.js =======================
 
-/** Google カレンダーから、その日（0:00〜23:59）の勤務予定を取り出す */
+// Google カレンダーから、その日（0:00〜23:59）の勤務予定を取り出す
 
-/**
- * 1回の実行の中だけ有効なカレンダーのキャッシュ。
- * カレンダーの取得も予定の読み込みも1回ごとに往復が発生するため、
- * 同じ実行の中では取得済みの結果を使い回す。
- */
+// 1回の実行の中だけ有効なカレンダーのキャッシュ。
+// カレンダーの取得も予定の読み込みも1回ごとに往復が発生するため、
+// 同じ実行の中では取得済みの結果を使い回す。
 var CALENDAR_SOURCES_CACHE = null;
 var CALENDAR_EVENTS_CACHE = {};
 
-/** カレンダー関連のキャッシュを捨てる */
+// カレンダー関連のキャッシュを捨てる
 function invalidateCalendarCache_() {
   CALENDAR_SOURCES_CACHE = null;
   CALENDAR_EVENTS_CACHE = {};
 }
 
-/**
- * CONFIG.calendarIds に列挙された全カレンダーを解決する。
- * 見つからない/読めないカレンダーはエラーを添えて返す（他のカレンダーの取り込みは止めない）。
- */
+// CONFIG.calendarIds に列挙された全カレンダーを解決する。
+// 見つからない/読めないカレンダーはエラーを添えて返す（他のカレンダーの取り込みは止めない）。
 function getTargetCalendars_() {
   if (CALENDAR_SOURCES_CACHE) return CALENDAR_SOURCES_CACHE;
   var ids = CONFIG.calendarIds && CONFIG.calendarIds.length ? CONFIG.calendarIds : ['primary'];
@@ -2482,13 +2386,11 @@ function getTargetCalendars_() {
   return resolved;
 }
 
-/**
- * 予定を取得する。すでに取得済みの範囲に収まっていれば、その結果から絞り込んで返す。
- *
- * アプリを開くと「過去1ヶ月の取り込み」と「先1ヶ月の見込み」で2回カレンダーを
- * 読むことになるが、prefetchCalendar_ で両方を含む範囲を先に1回読んでおけば、
- * 実際のカレンダー取得は1回で済む。
- */
+// 予定を取得する。すでに取得済みの範囲に収まっていれば、その結果から絞り込んで返す。
+//
+// アプリを開くと「過去1ヶ月の取り込み」と「先1ヶ月の見込み」で2回カレンダーを
+// 読むことになるが、prefetchCalendar_ で両方を含む範囲を先に1回読んでおけば、
+// 実際のカレンダー取得は1回で済む。
 function getCalendarEvents_(source, startDate, endDate) {
   var cached = CALENDAR_EVENTS_CACHE[source.key];
   if (cached && cached.from <= startDate.getTime() && cached.to >= endDate.getTime()) {
@@ -2506,10 +2408,8 @@ function getCalendarEvents_(source, startDate, endDate) {
   return events;
 }
 
-/**
- * これから必要になる期間をまとめて1回だけ読んでおく。
- * 取り込み（過去）と見込み（未来）の両方を含む範囲を一度に取る。
- */
+// これから必要になる期間をまとめて1回だけ読んでおく。
+// 取り込み（過去）と見込み（未来）の両方を含む範囲を一度に取る。
 function prefetchCalendar_(today) {
   var from = new Date(today.getTime());
   from.setDate(from.getDate() - Math.max(0, CONFIG.app.autoImportDays - 1));
@@ -2528,25 +2428,21 @@ function prefetchCalendar_(today) {
   });
 }
 
-/** 明細の時給欄に入れる値。日給の勤務は日給÷実働時間（円未満四捨五入） */
+// 明細の時給欄に入れる値。日給の勤務は日給÷実働時間（円未満四捨五入）
 function effectiveHourlyWage_(parsed, workedHours) {
   if (parsed.dailyWage > 0) return workedHours > 0 ? Math.round(parsed.dailyWage / workedHours) : 0;
   return parsed.hourlyWage;
 }
 
-/**
- * 勤務明細の行IDに使う接頭辞。
- * 既定カレンダー（primary）は既存データとの互換のため接頭辞を付けない。
- * 追加したカレンダーはキーを接頭辞にして、他カレンダーの同名予定と衝突しないようにする。
- */
+// 勤務明細の行IDに使う接頭辞。
+// 既定カレンダー（primary）は既存データとの互換のため接頭辞を付けない。
+// 追加したカレンダーはキーを接頭辞にして、他カレンダーの同名予定と衝突しないようにする。
 function calendarIdPrefix_(key) {
   return key === 'primary' ? '' : key + ':';
 }
 
-/**
- * 指定日の予定を解析して勤務データにする。
- * 戻り値: { dateStr, entries[], skipped, errors[], warnings[] }
- */
+// 指定日の予定を解析して勤務データにする。
+// 戻り値: { dateStr, entries[], skipped, errors[], warnings[] }
 function fetchWorkEntriesForDate_(date) {
   var start = new Date(date.getTime());
   start.setHours(0, 0, 0, 0);
@@ -2557,10 +2453,8 @@ function fetchWorkEntriesForDate_(date) {
   return result;
 }
 
-/**
- * 期間内の予定を、CONFIG.calendarIds の全カレンダーから取得して勤務データにする。
- * 戻り値: { entries[], skipped, errors[], warnings[] }
- */
+// 期間内の予定を、CONFIG.calendarIds の全カレンダーから取得して勤務データにする。
+// 戻り値: { entries[], skipped, errors[], warnings[] }
 function fetchWorkEntriesInRange_(startDate, endDate) {
   // keptIds: 勤務のつもりで書かれているのに読めなかった予定の行ID（古い行を消さずに残すため）
   // fetchedSources: 予定を読めたカレンダー（読めなかったカレンダーの行は消さない）
@@ -2657,10 +2551,8 @@ function fetchWorkEntriesInRange_(startDate, endDate) {
   return result;
 }
 
-/**
- * 期間内の予定を、CONFIG.calendarIds の全カレンダーからまとめて取得し、勤務予定だけを解析して返す。
- * シートには書き込まない（先読み用）。
- */
+// 期間内の予定を、CONFIG.calendarIds の全カレンダーからまとめて取得し、勤務予定だけを解析して返す。
+// シートには書き込まない（先読み用）。
 function fetchPlannedShifts_(startDate, endDate) {
   var result = { entries: [], skipped: 0, errors: [] };
 
@@ -2731,20 +2623,18 @@ function fetchPlannedShifts_(startDate, endDate) {
   return result;
 }
 
-/* ======================= Forecast.js ======================= */
+// ======================= Forecast.js =======================
 
-/**
- * この先の見込みと、勤務調整のアドバイス
- *
- * カレンダーに入っている「これからの予定」を先読みして、
- *   ・このまま働くと月間労働時間が上限を超えないか
- *   ・このまま働くと年収の壁を超えないか
- * を判定し、超えるなら「どのシフトを何件外せば収まるか」まで出す。
- *
- * 先読みした予定は勤務明細には書き込まない（実績と見込みを混ぜないため）。
- */
+// この先の見込みと、勤務調整のアドバイス
+//
+// カレンダーに入っている「これからの予定」を先読みして、
+//   ・このまま働くと月間労働時間が上限を超えないか
+//   ・このまま働くと年収の壁を超えないか
+// を判定し、超えるなら「どのシフトを何件外せば収まるか」まで出す。
+//
+// 先読みした予定は勤務明細には書き込まない（実績と見込みを混ぜないため）。
 
-/** 先読みしてアドバイスまで作る */
+// 先読みしてアドバイスまで作る
 function buildForecast_(calendarRows, limitRows, walls, annual, today, resolvePayment) {
   var start = new Date(today.getTime());
   start.setHours(0, 0, 0, 0);
@@ -2794,7 +2684,7 @@ function sumBy_(rows, field) {
   return total;
 }
 
-/** 実働時間で重みづけした平均時給 */
+// 実働時間で重みづけした平均時給
 function averageHourlyWage_(rows) {
   var hours = 0;
   var amount = 0;
@@ -2805,7 +2695,7 @@ function averageHourlyWage_(rows) {
   return hours > 0 ? Math.round(amount / hours) : 0;
 }
 
-/** 会社×月ごとの「実績＋予定＝見込み」 */
+// 会社×月ごとの「実績＋予定＝見込み」
 function forecastMonths_(calendarRows, planned, limitRows, today) {
   var limits = readCompanyLimits_(limitRows);
 
@@ -2865,7 +2755,7 @@ function forecastMonths_(calendarRows, planned, limitRows, today) {
     });
 }
 
-/** これからの予定も含めた「連続月」の見込み */
+// これからの予定も含めた「連続月」の見込み
 function forecastConsecutive_(calendarRows, planned, limitRows, today) {
   var extra = {};
   planned.forEach(function (e) {
@@ -2877,7 +2767,7 @@ function forecastConsecutive_(calendarRows, planned, limitRows, today) {
   return evaluateConsecutiveMonths_(calendarRows, limitRows, today, extra);
 }
 
-/** 予定を全部こなした場合の壁の状況 */
+// 予定を全部こなした場合の壁の状況
 function forecastWalls_(walls, annual, planned, resolvePayment) {
   // 壁は支給日が属する年で判定するので、支給が翌年になる予定は今年に足さない
   var counted = planned;
@@ -2907,7 +2797,7 @@ function forecastWalls_(walls, annual, planned, resolvePayment) {
   });
 }
 
-/** 直近の平均月収から年末の着地を見積もる（あくまで目安） */
+// 直近の平均月収から年末の着地を見積もる（あくまで目安）
 function forecastPace_(calendarRows, annual, walls, today) {
   var currentMonth = formatYearMonth_(today);
   var monthlyTotals = {};
@@ -2960,7 +2850,7 @@ function forecastPace_(calendarRows, annual, walls, today) {
   };
 }
 
-/** 調整アドバイスを組み立てる */
+// 調整アドバイスを組み立てる
 function buildAdvice_(forecast, planned) {
   var advice = [];
 
@@ -3048,7 +2938,7 @@ function buildAdvice_(forecast, planned) {
   return advice;
 }
 
-/** 超過分を解消するのに外すシフトを選ぶ（件数が少なくて済むよう長い順に） */
+// 超過分を解消するのに外すシフトを選ぶ（件数が少なくて済むよう長い順に）
 function chooseShiftsToCut_(plannedShifts, overHours) {
   var sorted = plannedShifts.slice().sort(function (a, b) {
     return toNumber_(b.worked_hours) - toNumber_(a.worked_hours);
@@ -3074,13 +2964,13 @@ function describeShifts_(shifts) {
     .join(' と ');
 }
 
-/* ======================= Summary.js ======================= */
+// ======================= Summary.js =======================
 
-/** サマリーシートの作成と、通知本文の組み立て */
+// サマリーシートの作成と、通知本文の組み立て
 
 var SUMMARY_COLS = 6;
 
-/** 各シートを読み込み、その時点の集計結果（スナップショット）を作る */
+// 各シートを読み込み、その時点の集計結果（スナップショット）を作る
 function buildSnapshot_(today, runInfo, options) {
   var targetYear = resolveTargetYear_(today);
   var yearMonth = formatYearMonth_(today);
@@ -3152,7 +3042,7 @@ function buildSnapshot_(today, runInfo, options) {
   };
 }
 
-/** サマリーシートを書き換える */
+// サマリーシートを書き換える
 function writeSummarySheet_(snapshot) {
   var sheet = getSheet_(SHEETS.SUMMARY);
   sheet.clear();
@@ -3394,7 +3284,7 @@ function writeSummarySheet_(snapshot) {
   sheet.setColumnWidth(6, 110);
 }
 
-/** 通知（メール／Webhook）用のテキストを組み立てる */
+// 通知（メール／Webhook）用のテキストを組み立てる
 function buildNotificationText_(snapshot) {
   var a = snapshot.annual;
   var lines = [];
@@ -3490,14 +3380,12 @@ function buildNotificationText_(snapshot) {
   return lines.join('\n');
 }
 
-/* ======================= Notify.js ======================= */
+// ======================= Notify.js =======================
 
-/**
- * 通知
- *
- * 既定は 'sheet'（サマリーシートと実行ログの更新のみ、外部送信なし）。
- * CONFIG.notify.channel を 'email' / 'webhook' に変えると毎日の実行結果を送る。
- */
+// 通知
+//
+// 既定は 'sheet'（サマリーシートと実行ログの更新のみ、外部送信なし）。
+// CONFIG.notify.channel を 'email' / 'webhook' に変えると毎日の実行結果を送る。
 
 function notify_(snapshot) {
   var body = buildNotificationText_(snapshot);
@@ -3540,15 +3428,13 @@ function postWebhook_(text) {
   });
 }
 
-/* ======================= Html.js ======================= */
+// ======================= Html.js =======================
 
-/**
- * HTML ファイルの読み込み
- *
- * 通常はプロジェクト内の .html ファイルを使うが、
- * 全部入りの1ファイル版（dist/all-in-one.gs）では HTML も同じファイルに
- * 埋め込まれるため、その場合は INLINE_HTML から読む。
- */
+// HTML ファイルの読み込み
+//
+// 通常はプロジェクト内の .html ファイルを使うが、
+// 全部入りの1ファイル版（dist/all-in-one.gs）では HTML も同じファイルに
+// 埋め込まれるため、その場合は INLINE_HTML から読む。
 var INLINE_HTML = {};
 
 function htmlTemplate_(name) {
@@ -3561,17 +3447,15 @@ function htmlOutput_(name) {
   return HtmlService.createHtmlOutputFromFile(name);
 }
 
-/* ======================= Reconcile.js ======================= */
+// ======================= Reconcile.js =======================
 
-/**
- * 月次の答え合わせ
- *
- * 実際の給与明細・支給照会の合計額を月1回入力し、カレンダー推定額との差分を見る。
- * 入力方法は2通り:
- *   ・メニュー「月次の答え合わせを入力」→ 入力フォーム（PC向け）
- *   ・monthly_reconciliation シートに直接 actual_amount を入力 →
- *     メニュー「月次の答え合わせを再計算」で差分を計算（スマホからでも可）
- */
+// 月次の答え合わせ
+//
+// 実際の給与明細・支給照会の合計額を月1回入力し、カレンダー推定額との差分を見る。
+// 入力方法は2通り:
+//   ・メニュー「月次の答え合わせを入力」→ 入力フォーム（PC向け）
+//   ・monthly_reconciliation シートに直接 actual_amount を入力 →
+//     メニュー「月次の答え合わせを再計算」で差分を計算（スマホからでも可）
 
 var RECONCILE_ALL = '合計（全勤務先）';
 
@@ -3582,7 +3466,7 @@ function openReconcileDialog() {
   ui.showModalDialog(html, '月次の答え合わせ');
 }
 
-/** ダイアログ初期表示用のデータ */
+// ダイアログ初期表示用のデータ
 function getReconcileFormData() {
   ensureSheets_();
   var rows = readTable_(SHEETS.CALENDAR).rows;
@@ -3620,7 +3504,7 @@ function getReconcileFormData() {
   };
 }
 
-/** 指定月・指定勤務先のカレンダー推定額 */
+// 指定月・指定勤務先のカレンダー推定額
 function estimatedForMonth_(calendarRows, yearMonth, companyName) {
   var total = 0;
   calendarRows.forEach(function (r) {
@@ -3631,7 +3515,7 @@ function estimatedForMonth_(calendarRows, yearMonth, companyName) {
   return total;
 }
 
-/** ダイアログから呼ばれる保存処理 */
+// ダイアログから呼ばれる保存処理
 function saveReconciliation(payload) {
   ensureSheets_();
   var yearMonth = String(payload.yearMonth || '').trim();
@@ -3688,7 +3572,7 @@ function saveReconciliation(payload) {
   };
 }
 
-/** 対象月・対象勤務先のカレンダー明細に「照合済み」を立てる */
+// 対象月・対象勤務先のカレンダー明細に「照合済み」を立てる
 function markReconciled_(yearMonth, companyName) {
   var sheet = getSheet_(SHEETS.CALENDAR);
   var col = SCHEMA[SHEETS.CALENDAR].indexOf('reconciled') + 1;
@@ -3702,7 +3586,7 @@ function markReconciled_(yearMonth, companyName) {
   if (changed) invalidateTable_(SHEETS.CALENDAR);
 }
 
-/** シートに直接入力された actual_amount から差分を計算し直す */
+// シートに直接入力された actual_amount から差分を計算し直す
 function recalcReconciliations_() {
   var table = readTable_(SHEETS.RECONCILE);
   if (table.rows.length === 0) return 0;
@@ -3748,91 +3632,81 @@ function recalcReconciliationsFromMenu() {
   toast_(count + '件の答え合わせを再計算しました。');
 }
 
-/* ======================= SeedData.js ======================= */
+// ======================= SeedData.js =======================
 
-/**
- * 実データの初期投入
- *
- * カレンダーに入っていない過去の確定収入と、既に働いた分のシフトを一括で登録する。
- * メニュー「実データを取り込む（初回のみ）」から実行する。
- *
- * 何度実行しても重複しない（同じキーの行を上書きする）。
- * カレンダーから同じ日を取り込んだ場合は、カレンダー側の行が優先される。
- */
+// 実データの初期投入
+//
+// カレンダーに入っていない過去の確定収入と、既に働いた分のシフトを一括で登録する。
+// メニュー「実データを取り込む（初回のみ）」から実行する。
+//
+// 何度実行しても重複しない（同じキーの行を上書きする）。
+// カレンダーから同じ日を取り込んだ場合は、カレンダー側の行が優先される。
 
-/**
- * カレンダー化されていない収入（確定額）
- *
- * ここは空のまま公開リポジトリに置いています。実際の金額は個人情報なので、
- * 自分の Apps Script プロジェクト側でだけ中身を書いてください。
- *
- * 書き方:
- *   {
- *     source_name: '〇〇株式会社',
- *     income_category: '給与所得',        // 給与所得 / 事業所得 / 雑所得
- *     period: '2026-03〜2026-05',        // 年が分かる形で
- *     amount: 100000,                    // 額面（円）
- *     expenses: 0,                       // 必要経費（円）。給与所得なら0
- *     note: '3月分〜5月分'
- *   }
- */
+// カレンダー化されていない収入（確定額）
+//
+// ここは空のまま公開リポジトリに置いています。実際の金額は個人情報なので、
+// 自分の Apps Script プロジェクト側でだけ中身を書いてください。
+//
+// 書き方:
+//   {
+//     source_name: '〇〇株式会社',
+//     income_category: '給与所得',        // 給与所得 / 事業所得 / 雑所得
+//     period: '2026-03〜2026-05',        // 年が分かる形で
+//     amount: 100000,                    // 額面（円）
+//     expenses: 0,                       // 必要経費（円）。給与所得なら0
+//     note: '3月分〜5月分'
+//   }
 var SEED_MANUAL_INCOME = [];
 
-/**
- * カレンダーに入っていない、既に働いた分のシフト
- * [日付, 勤務先, 開始, 終了, 休憩(h), 時給(円), 手当(円)]
- * 手当は省略可（単発バイトで出る交通費・食事補助などの固定額）。
- *
- * 書き方:
- *   ['2026-06-10', '〇〇', '09:00', '18:00', 1, 1200]
- *   ['2026-06-11', '〇〇', '09:00', '17:00', 0, 1500, 1000]
- */
+// カレンダーに入っていない、既に働いた分のシフト
+// [日付, 勤務先, 開始, 終了, 休憩(h), 時給(円), 手当(円)]
+// 手当は省略可（単発バイトで出る交通費・食事補助などの固定額）。
+//
+// 書き方:
+//   ['2026-06-10', '〇〇', '09:00', '18:00', 1, 1200]
+//   ['2026-06-11', '〇〇', '09:00', '17:00', 0, 1500, 1000]
 var SEED_SHIFTS = [];
 
-/**
- * 勤務先ごとの上限（会社から回答をもらったもの）
- *
- * ここも空のまま公開リポジトリに置いています。会社名は個人情報なので、
- * 自分の Apps Script プロジェクト側でだけ書いてください。
- *
- * 書き方:
- *   {
- *     company_name: '〇〇',
- *     monthly_hour_limit: 130,   // 月の上限（時間）
- *     weekly_hour_limit: 30,     // 週の上限（時間）。無ければ 0
- *     consecutive_months: 1,     // 「◯ヶ月連続で対象」と言われた場合その月数。通常は1
- *     confirmed: true,           // 会社から正式な回答をもらったか
- *     basis: '正社員の週所定労働時間40時間の3/4（2026-08-23 メール回答）'
- *   }
- */
+// 勤務先ごとの上限（会社から回答をもらったもの）
+//
+// ここも空のまま公開リポジトリに置いています。会社名は個人情報なので、
+// 自分の Apps Script プロジェクト側でだけ書いてください。
+//
+// 書き方:
+//   {
+//     company_name: '〇〇',
+//     monthly_hour_limit: 130,   // 月の上限（時間）
+//     weekly_hour_limit: 30,     // 週の上限（時間）。無ければ 0
+//     consecutive_months: 1,     // 「◯ヶ月連続で対象」と言われた場合その月数。通常は1
+//     confirmed: true,           // 会社から正式な回答をもらったか
+//     basis: '正社員の週所定労働時間40時間の3/4（2026-08-23 メール回答）'
+//   }
 var SEED_COMPANY_LIMITS = [];
 
-/**
- * 会社ごとの給与サイクル（締め日と支給日）
- *
- * ここも空のまま公開リポジトリに置いています。会社名は個人情報なので、
- * 自分の Apps Script プロジェクト側でだけ書いてください。
- *
- * 書き方:
- *   {
- *     company_name: '〇〇',
- *     cutoff_day: 20,          // 締め日。31 と書くと月末締め
- *     pay_month_offset: 1,     // 締め月の何ヶ月後に支給されるか
- *     pay_day: 10,             // 支給日。31 と書くと月末払い
- *     shift_rule: '前倒し',    // 支給日が休日のとき '前倒し' | '後ろ倒し' | 'そのまま'
- *     shift_on_holiday: true,  // 土日だけでなく祝日も休みとして扱うか
- *     confirmed: true,
- *     note: '21日〜翌20日の勤務が翌月10日払い（2026-08-30 会社から確認）'
- *   }
- */
+// 会社ごとの給与サイクル（締め日と支給日）
+//
+// ここも空のまま公開リポジトリに置いています。会社名は個人情報なので、
+// 自分の Apps Script プロジェクト側でだけ書いてください。
+//
+// 書き方:
+//   {
+//     company_name: '〇〇',
+//     cutoff_day: 20,          // 締め日。31 と書くと月末締め
+//     pay_month_offset: 1,     // 締め月の何ヶ月後に支給されるか
+//     pay_day: 10,             // 支給日。31 と書くと月末払い
+//     shift_rule: '前倒し',    // 支給日が休日のとき '前倒し' | '後ろ倒し' | 'そのまま'
+//     shift_on_holiday: true,  // 土日だけでなく祝日も休みとして扱うか
+//     confirmed: true,
+//     note: '21日〜翌20日の勤務が翌月10日払い（2026-08-30 会社から確認）'
+//   }
 var SEED_PAY_CYCLES = [];
 
-/** 同じ勤務を指すかどうかの判定キー */
+// 同じ勤務を指すかどうかの判定キー
 function shiftKey_(date, companyName, startTime) {
   return toDateString_(date) + '\t' + String(companyName).trim() + '\t' + toTimeString_(startTime);
 }
 
-/** メニューから呼ぶ本体 */
+// メニューから呼ぶ本体
 function importSeedData() {
   ensureSheets_();
   if (
@@ -3871,7 +3745,7 @@ function importSeedData() {
   return snapshot;
 }
 
-/** 確定収入を登録（収入元＋対象期間をキーに上書き） */
+// 確定収入を登録（収入元＋対象期間をキーに上書き）
 function seedManualIncome_() {
   var now = formatDateTime_(new Date());
   var rows = SEED_MANUAL_INCOME.map(function (item) {
@@ -3889,7 +3763,7 @@ function seedManualIncome_() {
   return upsertRows_(SHEETS.MANUAL, rows, 'id');
 }
 
-/** 会社から回答をもらった上限を登録（勤務先名をキーに上書き） */
+// 会社から回答をもらった上限を登録（勤務先名をキーに上書き）
 function seedCompanyLimits_() {
   if (SEED_COMPANY_LIMITS.length === 0) return { inserted: 0, updated: 0 };
   var now = formatDateTime_(new Date());
@@ -3908,7 +3782,7 @@ function seedCompanyLimits_() {
   return upsertRows_(SHEETS.LIMITS, rows, 'company_name');
 }
 
-/** 給与サイクルを登録（勤務先をキーに上書き） */
+// 給与サイクルを登録（勤務先をキーに上書き）
 function seedPayCycles_() {
   if (SEED_PAY_CYCLES.length === 0) return { inserted: 0, updated: 0 };
   var fb = CONFIG.payCycle.fallback;
@@ -3929,7 +3803,7 @@ function seedPayCycles_() {
   return upsertRows_(SHEETS.PAYCYCLE, rows, 'company_name');
 }
 
-/** シフトを勤務明細に登録（カレンダーから取り込み済みの勤務は触らない） */
+// シフトを勤務明細に登録（カレンダーから取り込み済みの勤務は触らない）
 function seedShifts_() {
   var now = formatDateTime_(new Date());
   var existing = {};
@@ -3989,10 +3863,8 @@ function seedShifts_() {
   return result;
 }
 
-/**
- * カレンダーから取り込む勤務と同じ勤務を指す手入力行を削除する。
- * 同じ日・同じ勤務先・同じ開始時刻ならカレンダー側を正とし、二重計上を防ぐ。
- */
+// カレンダーから取り込む勤務と同じ勤務を指す手入力行を削除する。
+// 同じ日・同じ勤務先・同じ開始時刻ならカレンダー側を正とし、二重計上を防ぐ。
 function removeSeededDuplicates_(entries) {
   if (!entries || entries.length === 0) return 0;
   var wanted = {};
@@ -4017,18 +3889,16 @@ function removeSeededDuplicates_(entries) {
   return remove.length;
 }
 
-/* ======================= WebApp.js ======================= */
+// ======================= WebApp.js =======================
 
-/**
- * ウェブアプリ（スマホから開く画面）
- *
- * 「デプロイ → 新しいデプロイ → 種類: ウェブアプリ」で公開すると、
- * https://script.google.com/macros/s/.../exec のURLで開けるようになる。
- * スマホのホーム画面に追加すればアプリのように使える。
- *
- * 公開設定は「次のユーザーとして実行: 自分」「アクセスできるユーザー: 自分のみ」にすること。
- * （収入情報を扱うので、他人がURLを知っても開けないようにする）
- */
+// ウェブアプリ（スマホから開く画面）
+//
+// 「デプロイ → 新しいデプロイ → 種類: ウェブアプリ」で公開すると、
+// https://script.google.com/macros/s/.../exec のURLで開けるようになる。
+// スマホのホーム画面に追加すればアプリのように使える。
+//
+// 公開設定は「次のユーザーとして実行: 自分」「アクセスできるユーザー: 自分のみ」にすること。
+// （収入情報を扱うので、他人がURLを知っても開けないようにする）
 
 function doGet() {
   var template = htmlTemplate_('App');
@@ -4064,10 +3934,8 @@ function doGet() {
     .addMetaTag('apple-mobile-web-app-capable', 'yes');
 }
 
-/**
- * 画面が表示されたあとに呼ばれ、カレンダーの取り込みと見込みの計算を行う。
- * 重い処理をここに寄せることで、最初の表示を待たせない。
- */
+// 画面が表示されたあとに呼ばれ、カレンダーの取り込みと見込みの計算を行う。
+// 重い処理をここに寄せることで、最初の表示を待たせない。
 function appSyncCalendar() {
   beginExecution_();
   ensureSheets_();
@@ -4079,10 +3947,8 @@ function appSyncCalendar() {
   return buildAppData_();
 }
 
-/**
- * 直近数日のカレンダーをその場で取り込む。
- * 画面を開いた時点の内容にするためのもので、失敗しても画面表示は止めない。
- */
+// 直近数日のカレンダーをその場で取り込む。
+// 画面を開いた時点の内容にするためのもので、失敗しても画面表示は止めない。
 function autoImportRecent_() {
   var days = CONFIG.app.autoImportDays;
   if (!days) return null;
@@ -4097,7 +3963,7 @@ function autoImportRecent_() {
   }
 }
 
-/** 画面に表示するデータ一式 */
+// 画面に表示するデータ一式
 function buildAppData_(options) {
   var now = new Date();
   var snapshot = buildSnapshot_(now, null, options);
@@ -4248,9 +4114,9 @@ function buildAppData_(options) {
   };
 }
 
-/* ------- 画面から呼ばれる処理（いずれも最新データを返す） ------- */
+// ------- 画面から呼ばれる処理（いずれも最新データを返す） -------
 
-/** 再読み込み（答え合わせの再計算つき） */
+// 再読み込み（答え合わせの再計算つき）
 function appRefresh() {
   beginExecution_();
   ensureSheets_();
@@ -4261,14 +4127,14 @@ function appRefresh() {
   return buildAppData_();
 }
 
-/** 今日の予定をいますぐ取り込む */
+// 今日の予定をいますぐ取り込む
 function appRunToday() {
   beginExecution_();
   runAnalysisForDate_(new Date());
   return buildAppData_();
 }
 
-/** 指定した日を取り込み直す */
+// 指定した日を取り込み直す
 function appImportDate(dateText) {
   beginExecution_();
   var date = parseDateInput_(dateText);
@@ -4284,14 +4150,14 @@ function appImportDate(dateText) {
   };
 }
 
-/** 月次の答え合わせを保存 */
+// 月次の答え合わせを保存
 function appSaveReconciliation(payload) {
   beginExecution_();
   var result = saveReconciliation(payload);
   return { data: buildAppData_(), result: result };
 }
 
-/** 手入力の収入を追加 */
+// 手入力の収入を追加
 function appAddManualIncome(payload) {
   beginExecution_();
   ensureSheets_();
@@ -4320,7 +4186,7 @@ function appAddManualIncome(payload) {
   return { data: buildAppData_(), message: sourceName + ' を登録しました' };
 }
 
-/** 勤務先ごとの月間上限を更新（会社から正式な回答が来たとき） */
+// 勤務先ごとの月間上限を更新（会社から正式な回答が来たとき）
 function appSaveCompanyLimit(payload) {
   beginExecution_();
   ensureSheets_();
@@ -4355,7 +4221,7 @@ function appSaveCompanyLimit(payload) {
   };
 }
 
-/** メニューからアプリのURLを表示する */
+// メニューからアプリのURLを表示する
 function showWebAppUrl() {
   var ui = requireUi_('③ アプリのURLを表示');
   var url = ScriptApp.getService().getUrl();
@@ -4366,11 +4232,9 @@ function showWebAppUrl() {
   ui.alert('アプリのURL\n\n' + url + '\n\nスマホでこのURLを開き、ブラウザの「ホーム画面に追加」を選ぶとアプリのように使えます。');
 }
 
-/* ======================= Main.js ======================= */
+// ======================= Main.js =======================
 
-/**
- * エントリポイント（メニュー・毎日の実行・トリガー設定）
- */
+// エントリポイント（メニュー・毎日の実行・トリガー設定）
 
 function onOpen() {
   var ui = getUiOrNull_();
@@ -4401,7 +4265,7 @@ function onOpen() {
     .addToUi();
 }
 
-/** ① 初期セットアップ */
+// ① 初期セットアップ
 function setupSheets() {
   beginExecution_();
   // 利用者が明示的に実行したときは、記録を無視して移行処理を必ずやり直す
@@ -4417,7 +4281,7 @@ function setupSheets() {
   toast_('シートを作成しました。次に「② 毎日23:30のトリガーを設定」を実行してください。');
 }
 
-/** ② 毎日23:30に dailyJob を実行するトリガーを設定 */
+// ② 毎日23:30に dailyJob を実行するトリガーを設定
 function installDailyTrigger() {
   removeDailyTrigger();
   var tzWarning = timeZoneWarning_();
@@ -4436,7 +4300,7 @@ function removeDailyTrigger() {
   });
 }
 
-/** 毎日23:30にトリガーから呼ばれる本体 */
+// 毎日23:30にトリガーから呼ばれる本体
 function dailyJob() {
   try {
     beginExecution_();
@@ -4452,14 +4316,12 @@ function dailyJob() {
   }
 }
 
-/** 指定日の予定を取り込み、シートと集計を更新する */
+// 指定日の予定を取り込み、シートと集計を更新する
 function runAnalysisForDate_(date) {
   return runAnalysisForRange_(date, date);
 }
 
-/**
- * 指定期間の予定を取り込み、シートと集計を更新する
- */
+// 指定期間の予定を取り込み、シートと集計を更新する
 function runAnalysisForRange_(startDate, endDate) {
   ensureSheets_();
   // 支給日の前倒し判定に使う祝日を、必要なときだけ取り込み直す
@@ -4473,10 +4335,8 @@ function runAnalysisForRange_(startDate, endDate) {
   return snapshot;
 }
 
-/**
- * 期間内の予定をカレンダーから取り込み、calendar_income_entries を更新する。
- * 同じ予定を再実行しても重複しない（カレンダーの予定ID＋日付をキーに上書きする）。
- */
+// 期間内の予定をカレンダーから取り込み、calendar_income_entries を更新する。
+// 同じ予定を再実行しても重複しない（カレンダーの予定ID＋日付をキーに上書きする）。
 function importDateRange_(startDate, endDate) {
   var start = new Date(startDate.getTime());
   start.setHours(0, 0, 0, 0);
@@ -4532,15 +4392,13 @@ function importDateRange_(startDate, endDate) {
   return all;
 }
 
-/**
- * 取り込んだ期間の中で、カレンダーに無くなった勤務の行を消す。
- *
- * シフトがキャンセルになって予定を消しても、明細の行が残ると収入に数え続けてしまう。
- * ただし次のものは消さない（消すと収入が黙って減ってしまうため）。
- *   ・手入力で登録した行（ID が seed- で始まる）
- *   ・今回読めなかったカレンダーの行（通信エラーなどで一時的に読めないことがある）
- *   ・予定はあるが書式の誤りで読めなかった行（直せばまた取り込まれる。エラーは別に知らせる）
- */
+// 取り込んだ期間の中で、カレンダーに無くなった勤務の行を消す。
+//
+// シフトがキャンセルになって予定を消しても、明細の行が残ると収入に数え続けてしまう。
+// ただし次のものは消さない（消すと収入が黙って減ってしまうため）。
+//   ・手入力で登録した行（ID が seed- で始まる）
+//   ・今回読めなかったカレンダーの行（通信エラーなどで一時的に読めないことがある）
+//   ・予定はあるが書式の誤りで読めなかった行（直せばまた取り込まれる。エラーは別に知らせる）
 function removeVanishedEntries_(run, fromDate, toDate) {
   var present = {};
   run.entries.forEach(function (e) {
@@ -4577,7 +4435,7 @@ function removeVanishedEntries_(run, fromDate, toDate) {
   return remove.length;
 }
 
-/** 明細の行IDが、どのカレンダーから取り込んだものかを返す（calendarIdPrefix_ の逆） */
+// 明細の行IDが、どのカレンダーから取り込んだものかを返す（calendarIdPrefix_ の逆）
 function calendarKeyOfRowId_(id) {
   var keys = CONFIG.calendarIds && CONFIG.calendarIds.length ? CONFIG.calendarIds : ['primary'];
   for (var i = 0; i < keys.length; i++) {
@@ -4587,7 +4445,7 @@ function calendarKeyOfRowId_(id) {
   return 'primary';
 }
 
-/** 新しい勤務先を company_hour_limits に暫定値で登録する */
+// 新しい勤務先を company_hour_limits に暫定値で登録する
 function ensureCompanyLimits_(companyNames) {
   var known = {};
   readTable_(SHEETS.LIMITS).rows.forEach(function (r) {
@@ -4610,7 +4468,7 @@ function ensureCompanyLimits_(companyNames) {
   appendRows_(SHEETS.LIMITS, added);
 }
 
-/** 新しい勤務先を 給与サイクル に暫定値で登録する */
+// 新しい勤務先を 給与サイクル に暫定値で登録する
 function ensurePayCycles_(companyNames) {
   var known = {};
   readTable_(SHEETS.PAYCYCLE).rows.forEach(function (r) {
@@ -4638,7 +4496,7 @@ function ensurePayCycles_(companyNames) {
   appendRows_(SHEETS.PAYCYCLE, added);
 }
 
-/* ------------------------- メニュー用 ------------------------- */
+// ------------------------- メニュー用 -------------------------
 
 function runTodayFromMenu() {
   var snapshot = runAnalysisForDate_(new Date());
@@ -4731,7 +4589,7 @@ function runTestsFromMenu() {
   showAlert_(result.summary, result.details.join('\n'));
 }
 
-/* ------------------------- 小物 ------------------------- */
+// ------------------------- 小物 -------------------------
 
 function promptText_(ui, title, message) {
   var res = ui.prompt(title, message, ui.ButtonSet.OK_CANCEL);
@@ -4759,14 +4617,12 @@ function toast_(message) {
   }
 }
 
-/**
- * 画面（ダイアログ）を出せる状態なら Ui を返し、出せないなら null を返す。
- *
- * Apps Script エディタの「実行」ボタンや、時間主導のトリガー、ウェブアプリからは
- * SpreadsheetApp.getUi() が使えず「Cannot call SpreadsheetApp.getUi() from this
- * context.」で落ちる。メニュー専用の処理はこれで先に確かめて、
- * 落ちる代わりに「スプレッドシートのメニューから実行してください」と伝える。
- */
+// 画面（ダイアログ）を出せる状態なら Ui を返し、出せないなら null を返す。
+//
+// Apps Script エディタの「実行」ボタンや、時間主導のトリガー、ウェブアプリからは
+// SpreadsheetApp.getUi() が使えず「Cannot call SpreadsheetApp.getUi() from this
+// context.」で落ちる。メニュー専用の処理はこれで先に確かめて、
+// 落ちる代わりに「スプレッドシートのメニューから実行してください」と伝える。
 function getUiOrNull_() {
   try {
     return SpreadsheetApp.getUi();
@@ -4775,7 +4631,7 @@ function getUiOrNull_() {
   }
 }
 
-/** メニュー専用の処理を、エディタから実行してしまったときの案内 */
+// メニュー専用の処理を、エディタから実行してしまったときの案内
 function requireUi_(menuItemName) {
   var ui = getUiOrNull_();
   if (ui) return ui;
@@ -4803,12 +4659,10 @@ function showSummaryAlert_(title, snapshot) {
   }
 }
 
-/* ======================= Tests.js ======================= */
+// ======================= Tests.js =======================
 
-/**
- * セルフテスト（スプレッドシートに触らない純粋なロジックのみ）
- * GASのメニュー「セルフテストを実行」からも、ローカルの node からも実行できる。
- */
+// セルフテスト（スプレッドシートに触らない純粋なロジックのみ）
+// GASのメニュー「セルフテストを実行」からも、ローカルの node からも実行できる。
 
 function runTests() {
   var details = [];
@@ -4825,7 +4679,7 @@ function runTests() {
     }
   }
 
-  /* --- タイトル解析 --- */
+  // --- タイトル解析 ---
   var p1 = parseWorkEventTitle_('[Kakedas] 09:00-18:00 休憩1h 時給1226円');
   check('基本形: 会社名', p1.companyName, 'Kakedas');
   check('基本形: 時刻', [p1.startTime, p1.endTime], ['09:00', '18:00']);
@@ -4858,7 +4712,7 @@ function runTests() {
   var p7 = parseWorkEventTitle_('[A] 休憩なし 時給1000円');
   check('タイトルに時刻なし: 予定の時刻を使う', [p7.ok, p7.hasTimeRange], [true, false]);
 
-  /* --- 手当（単発バイトで出る固定額） --- */
+  // --- 手当（単発バイトで出る固定額） ---
   var al1 = parseWorkEventTitle_('[バイトレ] 09:00-17:00 休憩なし 時給1700円 手当1000円');
   check('手当: 基本形', [al1.ok, al1.allowance], [true, 1000]);
   check('手当: 交通費も拾う', parseWorkEventTitle_('[A] 09:00-17:00 休憩なし 時給1000円 交通費500円').allowance, 500);
@@ -4875,7 +4729,7 @@ function runTests() {
   check('推定収入: 手当が無くても従来どおり', computeEstimatedAmount_(8, 1200), 9600);
   check('推定収入: 手当だけの端数も四捨五入', computeEstimatedAmount_(0, 0, 1500), 1500);
 
-  /* --- 日給（単発バイトで時給ではなく1日いくらで出る勤務） --- */
+  // --- 日給（単発バイトで時給ではなく1日いくらで出る勤務） ---
   var dw1 = parseWorkEventTitle_('[ビート] 08:00-16:00日給9891');
   check('日給: 円が無くても読める', [dw1.ok, dw1.dailyWage, dw1.hourlyWage], [true, 9891, 0]);
   var dw2 = parseWorkEventTitle_('[バイトレ] 14:00-23:00 日給14700円');
@@ -4890,7 +4744,7 @@ function runTests() {
   check('明細の時給欄: 日給÷実働', effectiveHourlyWage_({ dailyWage: 9891, hourlyWage: 0 }, 8), 1236);
   check('明細の時給欄: 時給の勤務はそのまま', effectiveHourlyWage_({ dailyWage: 0, hourlyWage: 1700 }, 8), 1700);
 
-  /* --- 支給額（残業などで時給×時間とずれた日を上書きする） --- */
+  // --- 支給額（残業などで時給×時間とずれた日を上書きする） ---
   var fx1 = parseWorkEventTitle_('[A] 09:00-18:00 休憩1h 時給1200円 支給12000円');
   check('支給額: 基本形', [fx1.ok, fx1.hasFixedAmount, fx1.fixedAmount], [true, true, 12000]);
   check(
@@ -4946,7 +4800,7 @@ function runTests() {
   check('手当: 年間の収入に含まれる', withAllowance.calendarRevenue, 20200);
   check('手当: 手当だけの合計も出す', withAllowance.allowanceTotal, 1000);
 
-  /* --- 給与サイクル（締め日と支給日） --- */
+  // --- 給与サイクル（締め日と支給日） ---
   var cycleRegency = {
     companyName: 'R', cutoffDay: 20, payMonthOffset: 1, payDay: 10,
     shiftRule: PAY_SHIFT_EARLIER, shiftOnHoliday: true, confirmed: true
@@ -5027,7 +4881,7 @@ function runTests() {
   var fallback = payCycleFor_({}, '知らない会社');
   check('未登録: 暫定値を使う', [fallback.cutoffDay, fallback.payDay, fallback.confirmed], [31, 25, false]);
 
-  /* --- 支給日ベースの年間集計 --- */
+  // --- 支給日ベースの年間集計 ---
   var payRows = [
     { date: '2026-12-05', company_name: 'B', worked_hours: 8, estimated_amount: 10000, allowance: 0 },
     { date: '2026-08-20', company_name: 'B', worked_hours: 8, estimated_amount: 20000, allowance: 0 }
@@ -5044,7 +4898,7 @@ function runTests() {
   check('支給日ベース: 翌年の収入になる', nextYear.calendarRevenue, 10000);
   check('支給日ベース: 前年から繰り越した分を数える', nextYear.carriedInRevenue, 10000);
 
-  /* --- 支給日ごとのまとめ --- */
+  // --- 支給日ごとのまとめ ---
   var payments = aggregatePayments_(payRows, resolveB, new Date(2026, 8, 30), 2026);
   check('振込予定: 2026年に振り込まれるのは1件', payments.length, 1);
   check('振込予定: 支給日と金額', [payments[0].payDate, payments[0].amount], ['2026-09-15', 20000]);
@@ -5052,7 +4906,7 @@ function runTests() {
   var future = aggregatePayments_(payRows, resolveB, new Date(2026, 7, 1), 2026);
   check('振込予定: これからの分は未支給', future[0].isPaid, false);
 
-  /* --- 月ごとの給料 --- */
+  // --- 月ごとの給料 ---
   var moRows = [
     { date: '2026-08-31', company_name: 'B', worked_hours: 8, estimated_amount: 10000 },
     { date: '2026-09-02', company_name: 'B', worked_hours: 8, estimated_amount: 20000 },
@@ -5074,7 +4928,7 @@ function runTests() {
   check('月ごと: 月に分けられない手入力は別に返す', mo.unassigned.map(function (u) { return u.amount; }), [50000]);
   check('月ごと: 今月', mo.currentMonth, '2026-09');
 
-  /* --- 実働時間・推定収入 --- */
+  // --- 実働時間・推定収入 ---
   check('実働時間: 9:00-18:00 休憩1h', computeWorkedHours_('09:00', '18:00', 1), 8);
   check('実働時間: 13:00-17:00 休憩0', computeWorkedHours_('13:00', '17:00', 0), 4);
   check('実働時間: 日またぎ 22:00-06:00 休憩1h', computeWorkedHours_('22:00', '06:00', 1), 7);
@@ -5083,13 +4937,13 @@ function runTests() {
   check('推定収入: 8h × 1226円', computeEstimatedAmount_(8, 1226), 9808);
   check('推定収入: 端数は四捨五入', computeEstimatedAmount_(7.5, 1015), 7613);
 
-  /* --- 給与所得控除 --- */
+  // --- 給与所得控除 ---
   check('給与所得控除: 収入0', computeSalaryDeduction_(0), 0);
   check('給与所得控除: 収入40万（収入が上限）', computeSalaryDeduction_(400000), 400000);
   check('給与所得控除: 収入123万', computeSalaryDeduction_(1230000), 650000);
   check('給与所得控除: 収入200万', computeSalaryDeduction_(2000000), 680000);
 
-  /* --- 年間集計 --- */
+  // --- 年間集計 ---
   var calRows = [
     { date: '2026-01-10', company_name: 'Kakedas', worked_hours: 8, estimated_amount: 9808 },
     { date: '2026-08-01', company_name: 'Kakedas', worked_hours: 8, estimated_amount: 9808 },
@@ -5112,7 +4966,7 @@ function runTests() {
   var badManual = aggregateAnnual_([], [{ source_name: 'X', income_category: '事業所得', period: '春ごろ', amount: 1 }], 2026);
   check('年間: periodに年が無い行は除外して警告', [badManual.totalRevenue, badManual.warnings.length], [0, 1]);
 
-  /* --- 壁 --- */
+  // --- 壁 ---
   var wallRows = [
     { name: '123万円', amount: 1230000, applicable_year: 2026, last_updated: '2026-08-22', note: '' },
     { name: '130万円', amount: 1300000, applicable_year: 2026, last_updated: '2026-08-22', note: '' },
@@ -5126,7 +4980,7 @@ function runTests() {
   check('壁: 超過は警告', evaluateWalls_(wallRows, 1300000, 2026)[0].status, '警告');
   check('壁: 超過分はマイナス表示', evaluateWalls_(wallRows, 1300000, 2026)[0].remaining, -70000);
 
-  /* --- 月間労働時間 --- */
+  // --- 月間労働時間 ---
   var hourRows = [
     { date: '2026-08-01', company_name: 'Kakedas', worked_hours: 90, estimated_amount: 0 },
     { date: '2026-08-02', company_name: 'Kakedas', worked_hours: 6, estimated_amount: 0 },
@@ -5146,7 +5000,7 @@ function runTests() {
   );
   check('時間: 100%到達で警告', over[0].status, '警告');
 
-  /* --- 週の上限（正社員の週所定労働時間の4分の3） --- */
+  // --- 週の上限（正社員の週所定労働時間の4分の3） ---
   check('週の開始日: 水曜日から月曜日', weekStartOf_('2026-08-19'), '2026-08-17');
   check('週の開始日: 月曜日はその日', weekStartOf_('2026-08-17'), '2026-08-17');
   check('週の開始日: 日曜日は同じ週の月曜', weekStartOf_('2026-08-23'), '2026-08-17');
@@ -5176,7 +5030,7 @@ function runTests() {
   check('週集計: 上限到達で警告', [overWeek[0].hours, overWeek[0].status], [31, '警告']);
   check('週集計: 週上限が無ければ対象外', aggregateWeeklyHours_(weeklyRows, [weeklyLimitRows[1]], new Date(2026, 7, 21), 2).length, 0);
 
-  /* --- 連続月（月◯時間以上が◯ヶ月連続） --- */
+  // --- 連続月（月◯時間以上が◯ヶ月連続） ---
   var beatLimits = [
     { company_name: 'ビート', monthly_hour_limit: 80, weekly_hour_limit: 0, consecutive_months: 2, confirmed: true },
     { company_name: 'Kakedas', monthly_hour_limit: 120, weekly_hour_limit: 0, consecutive_months: 1, confirmed: false }
@@ -5222,12 +5076,12 @@ function runTests() {
   );
   check('連続月: 予定を足した見込みでも判定できる', projected[0].status, '警告');
 
-  /* --- 月次の答え合わせ --- */
+  // --- 月次の答え合わせ ---
   check('答え合わせ: 誤差が小さければOK', evaluateReconciliation_(100000, 101000).status, 'OK');
   check('答え合わせ: 率も額も超えたら要確認', evaluateReconciliation_(100000, 120000).status, '要確認');
   check('答え合わせ: 少額なら率が大きくてもOK', evaluateReconciliation_(10000, 12000).status, 'OK');
 
-  /* --- 変換ユーティリティ --- */
+  // --- 変換ユーティリティ ---
   check('数値変換: カンマと円', toNumber_('1,226円'), 1226);
   check('数値変換: 空文字', toNumber_(''), 0);
   check('真偽変換', [toBool_(true), toBool_('TRUE'), toBool_('')], [true, true, false]);
@@ -5237,7 +5091,7 @@ function runTests() {
   check('日付入力: 存在しない日付は拒否', parseDateInput_('2026/8/32'), null);
   check('日付入力: 形式違いは拒否', parseDateInput_('8月20日'), null);
 
-  /* --- ロケール・タイムゾーン --- */
+  // --- ロケール・タイムゾーン ---
   check('時刻セル: 文字列はそのまま', toTimeString_('9:00'), '09:00');
   check('日付セル: 文字列はそのまま', toDateString_('2026/8/1'), '2026-08-01');
 
@@ -5245,7 +5099,7 @@ function runTests() {
   return { summary: summary, details: details, failed: failed };
 }
 
-/* ======================= HTML（画面） ======================= */
+// ======================= HTML（画面） =======================
 
 INLINE_HTML["App"] = "<!DOCTYPE html>\n<html lang=\"ja\">\n  <head>\n    <base target=\"_top\" />\n    <style>\n      /*\n        アメリカンバイクのモチーフ。\n        ガレージの暗さ（マットブラック〜ガンメタル）に、\n        タンクのオレンジとメッキのクローム、計器の琥珀色を乗せている。\n        端末のライト/ダーク設定にかかわらず、この一枚の見た目で通す。\n      */\n      :root {\n        color-scheme: dark;\n        --bg: #0b0b0d;\n        --bg-2: #121317;\n        --card: #17181c;\n        --card-2: #1e2026;\n        --line: #2c2f36;\n        --line-soft: #232529;\n        --text: #f1ece4;\n        --muted: #9a958c;\n        --faint: #6f6a63;\n\n        /* タンクのオレンジ */\n        --accent: #f0821e;\n        --accent-2: #c2410c;\n        --accent-soft: #2a1c10;\n        /* メッキ */\n        --chrome-1: #f6f7f8;\n        --chrome-2: #b9bec6;\n        --chrome-3: #7d838c;\n        --chrome-4: #4a4f57;\n\n        --ok: #7fd18f;\n        --warn: #f5b13c;\n        --alert: #f2695e;\n        --ok-bg: #16241a;\n        --warn-bg: #2b2113;\n        --alert-bg: #2c1917;\n        --ok-bar: #4caf6a;\n        --warn-bar: #e79a2a;\n        --alert-bar: #e2503f;\n\n        --shadow: 0 1px 2px rgba(0, 0, 0, .6), 0 6px 18px rgba(0, 0, 0, .45);\n        --shadow-lg: 0 2px 8px rgba(0, 0, 0, .6), 0 18px 44px rgba(0, 0, 0, .6);\n        --radius: 16px;\n        --chrome: linear-gradient(180deg, var(--chrome-1) 0%, var(--chrome-2) 42%, var(--chrome-4) 52%, var(--chrome-3) 68%, var(--chrome-1) 100%);\n      }\n\n      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }\n      html { -webkit-text-size-adjust: 100%; }\n      body {\n        margin: 0;\n        padding: 0 0 calc(76px + env(safe-area-inset-bottom));\n        background:\n          radial-gradient(1100px 520px at 50% -180px, #1d1f25 0%, transparent 70%),\n          var(--bg);\n        background-attachment: fixed;\n        color: var(--text);\n        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans',\n          'Noto Sans JP', 'Yu Gothic', sans-serif;\n        font-size: 15px;\n        line-height: 1.55;\n        -webkit-font-smoothing: antialiased;\n        overscroll-behavior-y: none;\n      }\n\n      /* ---------- ヘッダー ---------- */\n      header {\n        position: sticky; top: 0; z-index: 30;\n        background: linear-gradient(180deg, rgba(24,25,29,.96) 0%, rgba(16,17,20,.92) 100%);\n        backdrop-filter: saturate(1.4) blur(14px);\n        -webkit-backdrop-filter: saturate(1.4) blur(14px);\n        border-bottom: 1px solid #000;\n        box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 6px 18px rgba(0,0,0,.5);\n        padding: calc(10px + env(safe-area-inset-top)) 16px 10px;\n        display: flex; align-items: center; gap: 12px;\n      }\n      /* タンクのピンストライプ */\n      header::after {\n        content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px;\n        background: linear-gradient(90deg, transparent, var(--accent) 18%, var(--chrome-2) 50%, var(--accent) 82%, transparent);\n        opacity: .75;\n      }\n      header .brand { flex: 1; min-width: 0; }\n      header h1 {\n        font-size: 15px; margin: 0; font-weight: 800;\n        letter-spacing: .16em; text-transform: uppercase;\n        background: var(--chrome); -webkit-background-clip: text; background-clip: text;\n        color: transparent; -webkit-text-fill-color: transparent;\n      }\n      header h1 .jp {\n        display: block; font-size: 11px; letter-spacing: .06em; font-weight: 600;\n        text-transform: none; color: var(--muted);\n        -webkit-text-fill-color: var(--muted);\n      }\n      header .updated {\n        display: flex; align-items: center; gap: 5px;\n        font-size: 11px; color: var(--faint); font-weight: 400; margin-top: 1px;\n      }\n      .dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; background: var(--ok-bar); }\n      .dot.注意 { background: var(--warn-bar); }\n      .dot.警告 { background: var(--alert-bar); }\n      .spin {\n        width: 12px; height: 12px; flex: 0 0 auto;\n        border: 2px solid var(--line); border-top-color: var(--accent);\n        border-radius: 50%; animation: spin .7s linear infinite;\n      }\n      @keyframes spin { to { transform: rotate(360deg); } }\n      .icon-btn {\n        border: 1px solid var(--chrome-4); color: var(--chrome-1);\n        background: linear-gradient(180deg, #33363d, #1c1e22);\n        border-radius: 999px; padding: 7px 15px; font-size: 12.5px; font-weight: 700;\n        letter-spacing: .04em; cursor: pointer; flex: 0 0 auto; font-family: inherit;\n        box-shadow: 0 1px 0 rgba(255,255,255,.14) inset;\n      }\n      .icon-btn:active { transform: scale(.96); }\n      /* エンジン音の入切。かかっているときはオレンジに光らせる */\n      .engine-btn {\n        padding: 7px 11px; font-size: 11.5px;\n        color: var(--accent); border-color: rgba(240,130,30,.45);\n        text-shadow: 0 0 10px rgba(240,130,30,.5);\n      }\n      .engine-btn.off { color: var(--faint); border-color: var(--line); text-shadow: none; }\n\n      main { padding: 14px 14px 0; max-width: 620px; margin: 0 auto; }\n      .view { display: none; animation: fade .22s ease; }\n      .view.active { display: block; }\n      @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }\n\n      /* ---------- カード ---------- */\n      .card {\n        background: linear-gradient(180deg, var(--card-2) 0%, var(--card) 100%);\n        border: 1px solid var(--line);\n        border-radius: var(--radius);\n        padding: 16px;\n        margin-bottom: 12px;\n        box-shadow: var(--shadow), 0 1px 0 rgba(255,255,255,.05) inset;\n      }\n      /* 見出しは小さなクロームの銘板ふうに */\n      .card > h2 {\n        font-size: 10.5px; color: var(--muted); margin: 0 0 12px;\n        font-weight: 800; letter-spacing: .14em;\n        display: flex; align-items: center; gap: 9px;\n      }\n      .card > h2::after {\n        content: ''; flex: 1; height: 1px;\n        background: linear-gradient(90deg, var(--line), transparent);\n      }\n      .card h3 { font-size: 15px; margin: 0; font-weight: 650; }\n\n      /* ---------- ヒーロー ---------- */\n      /* 燃料タンクを思わせるカード。上に光沢、縁にクロームのライン */\n      .hero {\n        position: relative; overflow: hidden;\n        background:\n          radial-gradient(120% 90% at 50% -30%, rgba(255,255,255,.22) 0%, transparent 58%),\n          linear-gradient(165deg, var(--accent) 0%, var(--accent-2) 68%, #7c2a08 100%);\n        color: #fff2e4;\n        border: 1px solid rgba(255,255,255,.14);\n        border-radius: 22px; padding: 20px 18px;\n        margin-bottom: 12px; box-shadow: var(--shadow-lg);\n      }\n      .hero::after {\n        content: ''; position: absolute; left: 14px; right: 14px; bottom: 0; height: 2px;\n        background: var(--chrome); opacity: .55; border-radius: 2px;\n      }\n      .hero .label { font-size: 12px; opacity: .82; font-weight: 600; letter-spacing: .04em; }\n      .hero .amount { font-size: 34px; font-weight: 800; letter-spacing: -.025em; line-height: 1.15; margin-top: 2px; }\n      .hero .sub { font-size: 12px; opacity: .82; margin-top: 3px; }\n      .hero .split { margin-top: 16px; }\n      .split { display: flex; gap: 9px; }\n      .split .chip {\n        flex: 1; min-width: 0; padding: 10px 11px; border-radius: 11px;\n        background: #101116; border: 1px solid var(--line);\n      }\n      .split .chip .k { font-size: 10.5px; color: var(--muted); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n      .split .chip .v { font-size: 15px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }\n      .hero .chip {\n        flex: 1; background: rgba(0,0,0,.24); border: 1px solid rgba(255,255,255,.14);\n        border-radius: 12px; padding: 9px 11px; min-width: 0;\n      }\n      .hero .chip .k { font-size: 10.5px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n      .hero .chip .v { font-size: 15px; font-weight: 700; margin-top: 1px; }\n\n      /* ---------- 数値・行 ---------- */\n      .big { font-size: 27px; font-weight: 750; letter-spacing: -.022em; line-height: 1.2; }\n      .big.neg { color: var(--alert); }\n      .sub { font-size: 12px; color: var(--muted); }\n      .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }\n      .row + .row { margin-top: 7px; }\n      .row .k { color: var(--muted); font-size: 13px; }\n      .row .v { font-variant-numeric: tabular-nums; font-size: 14px; }\n      .strong { font-weight: 750; }\n      .divider { border-top: 1px solid var(--line-soft); margin: 11px 0; }\n      .total { background: var(--accent-soft); margin: 11px -16px -16px; padding: 13px 16px;\n               border-radius: 0 0 var(--radius) var(--radius); }\n      .total .k { color: var(--text); font-weight: 650; font-size: 13px; }\n      .total .v { font-size: 16px; }\n\n      /* ---------- バッジ ---------- */\n      .badge {\n        display: inline-block; font-size: 11px; font-weight: 750;\n        padding: 3px 10px; border-radius: 999px; white-space: nowrap;\n      }\n      .s-正常 { color: var(--ok); background: var(--ok-bg); }\n      .s-注意 { color: var(--warn); background: var(--warn-bg); }\n      .s-警告, .s-要確認 { color: var(--alert); background: var(--alert-bg); }\n      .s-OK { color: var(--ok); background: var(--ok-bg); }\n      .s-情報, .s-INFO { color: var(--muted); background: var(--line-soft); }\n\n      /* ---------- バー ---------- */\n      /* 計器の目盛りを敷いた進捗バー（タコメーターのイメージ） */\n      .bar {\n        position: relative; height: 11px; border-radius: 3px; overflow: hidden;\n        margin: 11px 0 7px;\n        background: #0a0a0c;\n        border: 1px solid #000;\n        box-shadow: 0 1px 0 rgba(255,255,255,.06), inset 0 2px 5px rgba(0,0,0,.9);\n      }\n      .bar::after {\n        content: ''; position: absolute; inset: 0; pointer-events: none;\n        background: repeating-linear-gradient(90deg, rgba(255,255,255,.16) 0 1px, transparent 1px 10%);\n      }\n      .bar > i {\n        display: block; height: 100%; border-radius: 2px;\n        transition: width .6s cubic-bezier(.2,.8,.2,1);\n        box-shadow: 0 0 10px currentColor;\n      }\n      .f-正常 { color: var(--ok-bar); background: linear-gradient(90deg, #2f7a45, var(--ok-bar)); }\n      .f-注意 { color: var(--warn-bar); background: linear-gradient(90deg, #a86a12, var(--warn-bar)); }\n      .f-警告 { color: var(--alert-bar); background: linear-gradient(90deg, #97281c, var(--alert-bar)); }\n\n      /* ---------- 壁カード ---------- */\n      .wall + .wall { margin-top: 6px; padding-top: 16px; border-top: 1px solid var(--line-soft); }\n      .wall .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }\n      .wall .name { font-size: 14px; font-weight: 700; }\n      .wall .rest {\n        font-size: 25px; font-weight: 800; letter-spacing: -.02em; margin-top: 5px;\n        font-variant-numeric: tabular-nums;\n      }\n      .wall .rest.neg { color: var(--alert); }\n      .wall .meta { display: flex; justify-content: space-between; }\n\n      /* ---------- 月ごとの給料 ---------- */\n      .seg {\n        display: flex; padding: 3px; border-radius: 10px; gap: 3px;\n        background: #0d0e11; border: 1px solid var(--line);\n      }\n      .seg button {\n        flex: 1; border: 0; border-radius: 8px; padding: 8px 6px;\n        background: transparent; color: var(--muted);\n        font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;\n      }\n      .seg button.on {\n        color: var(--text); background: linear-gradient(180deg, #33363d, #1c1e22);\n        box-shadow: 0 1px 0 rgba(255,255,255,.12) inset;\n      }\n      .mg-legend { display: flex; gap: 16px; margin: 10px 0 2px; font-size: 11.5px; color: var(--muted); }\n      .mg-legend span { display: inline-flex; align-items: center; gap: 6px; }\n      .mg-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }\n      .mg-wrap { position: relative; margin-top: 4px; }\n      .mg-svg { display: block; width: 100%; height: auto; }\n      .mg-grid { stroke: var(--line-soft); stroke-width: 1; }\n      .mg-tick { fill: var(--faint); font-size: 10px; text-anchor: end; dominant-baseline: middle; font-variant-numeric: tabular-nums; }\n      .mg-month { fill: var(--faint); font-size: 10.5px; text-anchor: middle; font-variant-numeric: tabular-nums; }\n      .mg-month.now { fill: var(--text); font-weight: 800; }\n      .mg-cap { fill: var(--text); font-size: 11px; font-weight: 800; text-anchor: middle; }\n      /* 色は検証済みの2段（入金済 #f0821e / 予定 #9c5a22）。暗いカード上で3:1以上 */\n      .mg-paid { fill: #f0821e; background: #f0821e; }\n      .mg-sched { fill: #9c5a22; background: #9c5a22; }\n      .mg-bar { transition: opacity .15s; }\n      .mg-hit { fill: transparent; cursor: pointer; outline: none; }\n      .mg-hit:focus { fill: rgba(255,255,255,.05); }\n      .mg-tip {\n        position: absolute; top: 0; transform: translateX(-50%);\n        display: flex; align-items: baseline; gap: 8px;\n        background: #23252b; border: 1px solid var(--line); border-radius: 8px;\n        padding: 5px 10px; pointer-events: none; white-space: nowrap;\n        box-shadow: var(--shadow);\n      }\n      .mg-tip[hidden] { display: none; }\n      .mg-tip .v { font-size: 14px; font-weight: 800; color: var(--text); }\n      .mg-tip .k { font-size: 11px; color: var(--muted); }\n      .mg-table { border-top: 1px solid var(--line-soft); }\n      .mg-row { border-bottom: 1px solid var(--line-soft); padding: 9px 0; }\n      .mg-row summary {\n        list-style: none; display: flex; justify-content: space-between; align-items: center;\n        cursor: pointer; gap: 8px;\n      }\n      .mg-row summary::-webkit-details-marker { display: none; }\n      .mg-row summary .m { font-weight: 700; }\n      .mg-row .v { font-variant-numeric: tabular-nums; }\n      .mg-co { margin-top: 6px; padding-left: 10px; font-size: 13px; }\n\n      /* ---------- 月ごとの見出し ---------- */\n      .month-head {\n        display: flex; align-items: center; gap: 10px;\n        padding: 7px 12px; margin-bottom: 12px; border-radius: 8px;\n        background: linear-gradient(180deg, #2b2e35, #1b1d21);\n        border: 1px solid var(--line);\n        box-shadow: 0 1px 0 rgba(255,255,255,.07) inset;\n      }\n      .month-head .month-name {\n        font-size: 14px; font-weight: 800; letter-spacing: .04em;\n        background: var(--chrome); -webkit-background-clip: text; background-clip: text;\n        color: transparent; -webkit-text-fill-color: transparent;\n      }\n      .month-head .sub { flex: 1; }\n      .month-row + .month-row { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line-soft); }\n\n      /* ---------- 一覧 ---------- */\n      ul.list { list-style: none; margin: 0; padding: 0; }\n      ul.list li { padding: 11px 0; border-top: 1px solid var(--line-soft); }\n      ul.list li:first-child { border-top: 0; padding-top: 2px; }\n      .empty { color: var(--faint); font-size: 13px; padding: 10px 0; text-align: center; }\n      .block + .block { margin-top: 17px; padding-top: 16px; border-top: 1px solid var(--line-soft); }\n\n      /* ---------- アドバイス ---------- */\n      .advice { display: flex; gap: 11px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line-soft); }\n      .advice:first-child { border-top: 0; padding-top: 0; }\n      .advice .badge { flex: 0 0 auto; margin-top: 1px; }\n      .advice div { font-size: 13.5px; line-height: 1.6; }\n\n      /* ---------- フォーム ---------- */\n      label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 5px; font-weight: 600; }\n      input, select, textarea {\n        width: 100%; padding: 11px 13px; font-size: 16px; color: var(--text);\n        background: #0d0e11; border: 1px solid var(--line); border-radius: 10px;\n        font-family: inherit; appearance: none;\n      }\n      input:focus, select:focus, textarea:focus {\n        outline: none; border-color: var(--accent);\n        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);\n      }\n      select { background-image: none; }\n      button.primary {\n        width: 100%; margin-top: 16px; padding: 13px; font-size: 15px; font-weight: 800;\n        letter-spacing: .06em;\n        border: 1px solid rgba(255,255,255,.16); border-radius: 10px;\n        background: linear-gradient(180deg, var(--accent), var(--accent-2));\n        color: #fff6ee; cursor: pointer; font-family: inherit;\n        box-shadow: 0 1px 0 rgba(255,255,255,.22) inset, 0 6px 16px rgba(0,0,0,.5);\n      }\n      button.primary:active { transform: scale(.99); }\n      button.primary:disabled { opacity: .5; }\n      button.small {\n        padding: 9px 14px; font-size: 13px; font-weight: 650; border-radius: 10px;\n        border: 1px solid var(--line); background: var(--card); color: var(--text);\n        cursor: pointer; font-family: inherit; flex: 0 0 auto;\n      }\n      .inline { display: flex; gap: 9px; align-items: center; }\n      .inline input, .inline select { flex: 1; min-width: 0; }\n      .check { display: flex; align-items: center; gap: 9px; margin-top: 12px; font-size: 13px; color: var(--muted); }\n      .check input { width: 19px; height: 19px; flex: 0 0 auto; accent-color: var(--accent); }\n      a { color: var(--accent); text-decoration: none; font-weight: 600; }\n\n      .estimate {\n        background: var(--accent-soft); border: 1px solid rgba(240,130,30,.28);\n        border-radius: 11px; padding: 13px 15px; margin-top: 14px;\n      }\n      .estimate .k { font-size: 11.5px; color: var(--muted); font-weight: 600; }\n      .estimate .v { font-size: 25px; font-weight: 780; letter-spacing: -.02em; margin-top: 1px; }\n\n      /* ---------- スピードメーター ---------- */\n      .gauge { margin-bottom: 12px; }\n      /* メッキのベゼルに囲まれた黒い文字盤 */\n      .gauge-face {\n        position: relative;\n        border-radius: 22px;\n        padding: 16px 14px 14px;\n        background:\n          radial-gradient(115% 85% at 50% 6%, #23252c 0%, #101116 62%, #08090b 100%);\n        border: 1px solid #000;\n        box-shadow:\n          0 0 0 3px var(--chrome-4),\n          0 0 0 4px var(--chrome-2),\n          0 0 0 6px #16171b,\n          var(--shadow-lg),\n          inset 0 2px 10px rgba(255, 255, 255, .07);\n      }\n      .gauge-face svg { display: block; width: 100%; height: auto; overflow: visible; }\n\n      /* 目盛りの帯 */\n      .g-band { fill: none; stroke-width: 5; stroke-linecap: butt; opacity: .5; }\n      .g-ok { stroke: var(--ok-bar); }\n      .g-warn { stroke: var(--warn-bar); }\n      .g-alert { stroke: var(--alert-bar); }\n\n      /* 目盛り。オレンジに淡く光らせる */\n      .g-tick { stroke: var(--accent); stroke-width: 1.6; opacity: .55; }\n      .g-major { stroke-width: 3.2; opacity: 1; }\n      .g-num {\n        fill: var(--accent); font-size: 19px; font-weight: 800;\n        text-anchor: middle; dominant-baseline: middle;\n        font-family: 'Helvetica Neue', Arial, sans-serif;\n      }\n      .g-unit {\n        fill: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .18em;\n        text-anchor: middle; dominant-baseline: middle;\n      }\n      /* 壁の位置に立てる印 */\n      .g-wall { stroke: var(--alert); stroke-width: 2.4; opacity: .9; }\n\n      /* 針 */\n      .g-needle {\n        stroke: #fff3e2; stroke-width: 5; stroke-linecap: round;\n        filter: drop-shadow(0 0 7px rgba(255, 190, 120, .75));\n      }\n      /* 起動時に0から現在値まで振れる（実車の針の動きに合わせている） */\n      .g-needle-wrap {\n        transform-origin: 160px 168px;\n        animation: sweep 1s cubic-bezier(.18, .9, .25, 1) both;\n      }\n      @keyframes sweep {\n        from { transform: rotate(0deg); }\n        to { transform: rotate(var(--to)); }\n      }\n      @media (prefers-reduced-motion: reduce) {\n        .g-needle-wrap { animation: none; transform: rotate(var(--to)); }\n      }\n      .g-hub { fill: var(--chrome-3); stroke: #0a0a0c; stroke-width: 1.5; }\n      .g-hub2 { fill: #17181c; }\n\n      /* 計器の警告灯 */\n      .gauge-face .lamps {\n        position: absolute; left: 50%; transform: translateX(-50%);\n        bottom: 62px; display: flex; gap: 42px;\n      }\n      .lamps .lamp {\n        width: 9px; height: 9px; border-radius: 50%;\n        background: #2a2b30; box-shadow: inset 0 1px 2px rgba(0,0,0,.8);\n      }\n      .lamps .lamp.on { background: var(--warn); box-shadow: 0 0 10px var(--warn); }\n      .lamps .lamp.on.alert { background: var(--alert); box-shadow: 0 0 10px var(--alert); }\n\n      /* 走行距離計ふうの液晶 */\n      .odo {\n        display: flex; align-items: center; justify-content: center; gap: 10px;\n        margin: 4px auto 0; width: fit-content; max-width: 100%;\n        padding: 6px 14px; border-radius: 5px;\n        background: #1a1305;\n        border: 1px solid #000;\n        box-shadow: inset 0 2px 6px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06);\n      }\n      .odo-k { font-size: 10px; color: #a4711d; font-weight: 700; letter-spacing: .12em; }\n      .odo-v {\n        font-size: 20px; font-weight: 800; letter-spacing: .06em;\n        color: #ffb03a; text-shadow: 0 0 9px rgba(255, 150, 30, .6);\n        font-variant-numeric: tabular-nums;\n        font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;\n      }\n      .gauge-note { text-align: center; font-size: 13px; color: var(--muted); margin-top: 11px; }\n      .gauge-note b { color: var(--text); font-size: 15px; }\n\n      /* ---------- 起動画面（イグニッション） ---------- */\n      #ignition {\n        position: fixed; inset: 0; z-index: 90;\n        display: flex; flex-direction: column; align-items: center; justify-content: center;\n        gap: 26px; padding: 32px;\n        background:\n          radial-gradient(720px 460px at 50% 38%, #1e2027 0%, #0a0a0c 68%),\n          #08080a;\n        transition: opacity .55s ease, visibility .55s;\n      }\n      #ignition.gone { opacity: 0; visibility: hidden; pointer-events: none; }\n\n      #ignition .mark {\n        text-align: center;\n        font-weight: 900; letter-spacing: .3em; font-size: 13px; text-transform: uppercase;\n        background: var(--chrome); -webkit-background-clip: text; background-clip: text;\n        color: transparent; -webkit-text-fill-color: transparent;\n      }\n      #ignition .mark small {\n        display: block; margin-top: 8px;\n        font-size: 19px; letter-spacing: .1em; font-weight: 800;\n        -webkit-text-fill-color: transparent;\n      }\n      #ignition .mark .jp {\n        display: block; margin-top: 10px; font-size: 12px; letter-spacing: .08em;\n        font-weight: 600; color: var(--muted); -webkit-text-fill-color: var(--muted);\n        text-transform: none;\n      }\n\n      /* セルスターターのボタン */\n      #starter {\n        position: relative; width: 172px; height: 172px; border-radius: 50%;\n        border: 0; padding: 0; cursor: pointer; font-family: inherit;\n        background: var(--chrome);\n        box-shadow: 0 18px 40px rgba(0,0,0,.7), 0 0 0 1px #000;\n        display: grid; place-items: center;\n        transition: transform .12s ease;\n      }\n      #starter::before {\n        content: ''; position: absolute; inset: 9px; border-radius: 50%;\n        background: radial-gradient(circle at 50% 32%, #3a3d45 0%, #17181c 62%, #0c0d10 100%);\n        box-shadow: inset 0 2px 6px rgba(255,255,255,.14), inset 0 -8px 18px rgba(0,0,0,.85);\n      }\n      #starter .face {\n        position: relative; text-align: center; line-height: 1.25;\n        color: var(--accent); text-shadow: 0 0 16px rgba(240,130,30,.5);\n      }\n      #starter .face .en { display: block; font-size: 25px; font-weight: 900; letter-spacing: .16em; }\n      #starter .face .jp { display: block; font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .1em; margin-top: 4px; text-shadow: none; }\n      #starter:active { transform: scale(.96); }\n      #starter.cranking { animation: shake .09s linear infinite; }\n      #starter.cranking .face .en { animation: flicker .12s linear infinite; }\n      @keyframes shake {\n        0% { transform: translate(0, 0); }\n        25% { transform: translate(1px, -1px); }\n        50% { transform: translate(-1px, 1px); }\n        75% { transform: translate(-1px, -1px); }\n        100% { transform: translate(1px, 1px); }\n      }\n      @keyframes flicker { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }\n\n      #ignition .hint { font-size: 12px; color: var(--faint); text-align: center; max-width: 300px; line-height: 1.7; }\n      #ignition .mute {\n        border: 1px solid var(--chrome-4); color: var(--chrome-2); background: transparent;\n        border-radius: 999px; padding: 8px 18px; font-size: 12px; font-weight: 700;\n        cursor: pointer; font-family: inherit;\n      }\n      @media (prefers-reduced-motion: reduce) {\n        #starter.cranking, #starter.cranking .face .en { animation: none; }\n      }\n\n      /* ---------- ナビ ---------- */\n      nav {\n        position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;\n        display: flex;\n        background: linear-gradient(180deg, rgba(26,27,32,.96), rgba(12,13,16,.98));\n        backdrop-filter: saturate(1.4) blur(14px);\n        -webkit-backdrop-filter: saturate(1.4) blur(14px);\n        border-top: 1px solid #000;\n        box-shadow: 0 -1px 0 rgba(255,255,255,.07) inset, 0 -8px 24px rgba(0,0,0,.55);\n        padding-bottom: env(safe-area-inset-bottom);\n      }\n      nav button {\n        flex: 1; border: 0; background: transparent; color: var(--faint);\n        padding: 8px 0 9px; font-size: 10.5px; cursor: pointer; font-family: inherit;\n        font-weight: 650; position: relative; transition: color .18s;\n      }\n      nav button .ico { display: block; font-size: 19px; line-height: 1.35; filter: grayscale(1); opacity: .55; transition: all .18s; }\n      nav button.active { color: var(--accent); text-shadow: 0 0 12px rgba(240,130,30,.45); }\n      nav button.active .ico { filter: none; opacity: 1; transform: translateY(-1px); }\n\n      /* ---------- 通知など ---------- */\n      #toast {\n        position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));\n        transform: translateX(-50%) translateY(10px);\n        background: #23252b; color: var(--text); border: 1px solid var(--line);\n        padding: 12px 18px; border-radius: 11px;\n        font-size: 13px; max-width: 88%; z-index: 60; box-shadow: var(--shadow-lg);\n        opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;\n      }\n      #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }\n      #busy {\n        position: fixed; inset: 0; background: rgba(10, 12, 16, .3); z-index: 70;\n        display: none; align-items: center; justify-content: center;\n        backdrop-filter: blur(2px);\n      }\n      #busy.show { display: flex; }\n      #busy div {\n        background: var(--card); padding: 16px 24px; border-radius: 14px;\n        font-size: 14px; font-weight: 600; box-shadow: var(--shadow-lg);\n      }\n      .skeleton {\n        background: linear-gradient(90deg, var(--line-soft) 25%, var(--line) 37%, var(--line-soft) 63%);\n        background-size: 400% 100%; animation: shimmer 1.3s ease-in-out infinite;\n        border-radius: 8px; height: 13px;\n      }\n      @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }\n      .disclaimer {\n        font-size: 11px; color: var(--faint); line-height: 1.6;\n        padding: 16px 6px 24px; text-align: center;\n      }\n    </style>\n  </head>\n  <body>\n    <div id=\"ignition\">\n      <div class=\"mark\">\n        Income Wall\n        <small>Garage Ledger</small>\n        <span class=\"jp\">年収の壁・労働時間管理</span>\n      </div>\n      <button id=\"starter\" type=\"button\" aria-label=\"エンジンを始動してアプリを開く\">\n        <span class=\"face\"><span class=\"en\">START</span><span class=\"jp\">押して始動</span></span>\n      </button>\n      <div class=\"hint\" id=\"ignition-hint\">ボタンを押すとエンジン音が鳴ります。<br />音を出したくないときは下から消せます。</div>\n      <button class=\"mute\" id=\"mute-toggle\" type=\"button\">音を消す</button>\n      <audio id=\"engine\" preload=\"auto\" src=\"<?!= engineSound ?>\"></audio>\n      <audio id=\"idle\" preload=\"auto\" loop src=\"<?!= idleSound ?>\"></audio>\n    </div>\n\n    <header>\n      <div class=\"brand\">\n        <h1>Income Wall<span class=\"jp\">年収の壁・労働時間管理</span></h1>\n        <span class=\"updated\" id=\"updated\"><span class=\"spin\"></span>読み込み中</span>\n      </div>\n      <button class=\"icon-btn engine-btn\" id=\"engine-toggle\" type=\"button\" aria-label=\"エンジン音の入切\">■</button>\n      <button class=\"icon-btn\" id=\"reload\">更新</button>\n    </header>\n\n    <main>\n      <section class=\"view active\" id=\"view-home\"></section>\n      <section class=\"view\" id=\"view-income\"></section>\n      <section class=\"view\" id=\"view-forecast\"></section>\n      <section class=\"view\" id=\"view-reconcile\"></section>\n      <section class=\"view\" id=\"view-settings\"></section>\n      <div class=\"disclaimer\" id=\"disclaimer\"></div>\n    </main>\n\n    <nav>\n      <button data-view=\"home\" class=\"active\"><span class=\"ico\">🏠</span>ホーム</button>\n      <button data-view=\"income\"><span class=\"ico\">💴</span>収入</button>\n      <button data-view=\"forecast\"><span class=\"ico\">📅</span>見込み</button>\n      <button data-view=\"reconcile\"><span class=\"ico\">✅</span>照合</button>\n      <button data-view=\"settings\"><span class=\"ico\">⚙️</span>設定</button>\n    </nav>\n\n    <div id=\"toast\"></div>\n    <div id=\"busy\"><div>処理中…</div></div>\n\n    <script>\n      // 下のスクリプトが壊れても白い画面のまま放置しないための保険。\n      // 別の script ブロックに置くことで、後続ブロックの構文エラーも拾える。\n      window.addEventListener('error', function (event) {\n        var updated = document.getElementById('updated');\n        if (updated) updated.textContent = '表示エラー';\n        var home = document.getElementById('view-home');\n        if (home) {\n          home.innerHTML =\n            '<div class=\"card\"><h2>画面を表示できませんでした</h2><div class=\"sub\">' +\n            String(event.message || event.error || '不明なエラー') +\n            '</div><div class=\"sub\" style=\"margin-top:8px\">スプレッドシートのサマリータブからも同じ内容を確認できます。</div></div>';\n        }\n      });\n    </script>\n\n    <script>\n      // JSON はそのまま JavaScript のリテラルとして正しいので、文字列に包まず埋め込む。\n      // 文字列に包むと \\t や \\\" が JS 側で先に展開されてしまい、JSON.parse が壊れる。\n      var DATA = <?!= bootstrapJson ?>;\n\n      /* ---------- 小物 ---------- */\n      function esc(s) {\n        return String(s == null ? '' : s).replace(/[&<>\"']/g, function (c) {\n          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c];\n        });\n      }\n      function yen(n) {\n        var v = Math.round(Number(n) || 0);\n        var sign = v < 0 ? '-' : '';\n        return sign + Math.abs(v).toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',') + '円';\n      }\n      function pct(r) { return Math.round((Number(r) || 0) * 100) + '%'; }\n      function cutoffLabel(day) {\n        return Number(day) >= 31 ? '月末' : Number(day) + '日';\n      }\n      function payDayLabel(offset, day) {\n        var when = Number(offset) === 0 ? '当月' : Number(offset) === 1 ? '翌月' : '翌々月';\n        return when + (Number(day) >= 31 ? '末' : Number(day) + '日');\n      }\n      function monthLabel(ym) {\n        var m = String(ym || '').match(/^(\\d{4})-(\\d{2})$/);\n        return m ? Number(m[1]) + '年' + Number(m[2]) + '月' : String(ym || '');\n      }\n      function clamp(r) { return Math.max(0, Math.min(100, Math.round((Number(r) || 0) * 100))); }\n      function el(id) { return document.getElementById(id); }\n\n      function toast(msg) {\n        var t = el('toast');\n        t.textContent = msg;\n        t.classList.add('show');\n        clearTimeout(t._timer);\n        t._timer = setTimeout(function () { t.classList.remove('show'); }, 4200);\n      }\n      function busy(on) { el('busy').classList.toggle('show', on); }\n\n      function call(fnName, arg, onDone) {\n        busy(true);\n        var runner = google.script.run\n          .withSuccessHandler(function (res) {\n            busy(false);\n            if (res && res.data) DATA = res.data;\n            else if (res) DATA = res;\n            render();\n            if (onDone) onDone(res);\n            else if (res && res.message) toast(res.message);\n          })\n          .withFailureHandler(function (err) {\n            busy(false);\n            toast('エラー: ' + err.message);\n          });\n        if (arg === undefined) runner[fnName]();\n        else runner[fnName](arg);\n      }\n\n      function bar(ratio, status) {\n        return '<div class=\"bar\"><i class=\"f-' + esc(status) + '\" style=\"width:' + clamp(ratio) + '%\"></i></div>';\n      }\n      function card(title, inner) {\n        return '<div class=\"card\">' + (title ? '<h2>' + esc(title) + '</h2>' : '') + inner + '</div>';\n      }\n      function row(k, v, strong) {\n        return '<div class=\"row\"><span class=\"k\">' + esc(k) + '</span><span class=\"v' +\n          (strong ? ' strong' : '') + '\">' + v + '</span></div>';\n      }\n      function totalRow(k, v) {\n        return '<div class=\"total\"><div class=\"row\"><span class=\"k\">' + esc(k) +\n          '</span><span class=\"v strong\">' + v + '</span></div></div>';\n      }\n      function badge(status) {\n        return '<span class=\"badge s-' + esc(status) + '\">' + esc(status) + '</span>';\n      }\n\n      /* ---------- スピードメーター ---------- */\n      /**\n       * 年間収入を、バイクのスピードメーターの形で描く。\n       *\n       * 円のままだと画面の高さを取りすぎるので、165度から375度までの\n       * 210度の弧にしている（真上が中央）。目盛りは20万円ごと、\n       * 帯の色は「最初の壁まで＝緑」「次の壁まで＝橙」「その先＝赤」。\n       */\n      var GAUGE = { cx: 160, cy: 168, r: 128, start: 165, sweep: 210 };\n\n      function gaugePoint(ratio, radius) {\n        var a = ((GAUGE.start + GAUGE.sweep * ratio) * Math.PI) / 180;\n        return [GAUGE.cx + radius * Math.cos(a), GAUGE.cy + radius * Math.sin(a)];\n      }\n\n      function gaugeArc(fromRatio, toRatio, radius) {\n        var p1 = gaugePoint(fromRatio, radius);\n        var p2 = gaugePoint(toRatio, radius);\n        var large = GAUGE.sweep * (toRatio - fromRatio) > 180 ? 1 : 0;\n        return 'M' + round1(p1[0]) + ' ' + round1(p1[1]) +\n          'A' + radius + ' ' + radius + ' 0 ' + large + ' 1 ' + round1(p2[0]) + ' ' + round1(p2[1]);\n      }\n\n      function round1(n) { return Math.round(n * 10) / 10; }\n\n      /** メーターの上限（一番大きい壁の少し先。20万円単位で切り上げ） */\n      function gaugeMax(walls, revenue) {\n        var top = 0;\n        (walls || []).forEach(function (w) { if (w.amount > top) top = w.amount; });\n        if (!top) top = 1500000;\n        var needed = Math.max(top * 1.2, revenue * 1.1);\n        return Math.ceil(needed / 200000) * 200000;\n      }\n\n      function speedometer(d) {\n        var walls = (d.walls || []).slice().sort(function (a, b) { return a.amount - b.amount; });\n        var revenue = Number(d.annual.totalRevenue) || 0;\n        var max = gaugeMax(walls, revenue);\n        var at = function (amount) { return Math.max(0, Math.min(1, amount / max)); };\n\n        // 帯（緑→橙→赤）。壁の位置で色が変わる\n        var firstWall = walls.length ? walls[0].amount : max;\n        var lastWall = walls.length ? walls[walls.length - 1].amount : max;\n        var bands =\n          '<path class=\"g-band g-ok\" d=\"' + gaugeArc(0, at(firstWall), GAUGE.r) + '\" />' +\n          (lastWall > firstWall\n            ? '<path class=\"g-band g-warn\" d=\"' + gaugeArc(at(firstWall), at(lastWall), GAUGE.r) + '\" />'\n            : '') +\n          (at(lastWall) < 1\n            ? '<path class=\"g-band g-alert\" d=\"' + gaugeArc(at(lastWall), 1, GAUGE.r) + '\" />'\n            : '');\n\n        // 目盛り。20万円ごとに数字、5万円ごとに小さい目盛り\n        var ticks = '';\n        var labels = '';\n        for (var amount = 0; amount <= max; amount += 50000) {\n          var isMajor = amount % 200000 === 0;\n          var t = at(amount);\n          var outer = gaugePoint(t, GAUGE.r - 8);\n          var inner = gaugePoint(t, GAUGE.r - (isMajor ? 24 : 16));\n          ticks +=\n            '<line class=\"g-tick' + (isMajor ? ' g-major' : '') + '\" x1=\"' + round1(outer[0]) + '\" y1=\"' + round1(outer[1]) +\n            '\" x2=\"' + round1(inner[0]) + '\" y2=\"' + round1(inner[1]) + '\" />';\n          if (isMajor) {\n            var lp = gaugePoint(t, GAUGE.r - 43);\n            labels +=\n              '<text class=\"g-num\" x=\"' + round1(lp[0]) + '\" y=\"' + round1(lp[1]) + '\">' +\n              Math.round(amount / 10000) + '</text>';\n          }\n        }\n\n        // 壁の位置に赤い印を立てる\n        var marks = '';\n        walls.forEach(function (w) {\n          var t = at(w.amount);\n          var a = gaugePoint(t, GAUGE.r + 2);\n          var b = gaugePoint(t, GAUGE.r - 30);\n          marks +=\n            '<line class=\"g-wall\" x1=\"' + round1(a[0]) + '\" y1=\"' + round1(a[1]) +\n            '\" x2=\"' + round1(b[0]) + '\" y2=\"' + round1(b[1]) + '\" />';\n        });\n\n        // 針。0の位置で描いて回転させる（起動時に0から振れるようにするため）\n        var t = at(revenue);\n        var tip = gaugePoint(0, GAUGE.r - 26);\n        var tail = gaugePoint(0, -14);\n        var needle =\n          '<g class=\"g-needle-wrap\" style=\"--to:' + round1(GAUGE.sweep * t) + 'deg\">' +\n          '<line class=\"g-needle\" x1=\"' + round1(tail[0]) + '\" y1=\"' + round1(tail[1]) +\n          '\" x2=\"' + round1(tip[0]) + '\" y2=\"' + round1(tip[1]) + '\" />' +\n          '</g>' +\n          '<circle class=\"g-hub\" cx=\"' + GAUGE.cx + '\" cy=\"' + GAUGE.cy + '\" r=\"13\" />' +\n          '<circle class=\"g-hub2\" cx=\"' + GAUGE.cx + '\" cy=\"' + GAUGE.cy + '\" r=\"6\" />';\n\n        var nearest = walls.slice().sort(function (a, b) { return a.remaining - b.remaining; })[0];\n        var lamp = nearest ? nearest.status : '正常';\n\n        return (\n          '<div class=\"gauge\">' +\n          '<div class=\"gauge-face\">' +\n          '<svg viewBox=\"0 30 320 178\" role=\"img\" aria-label=\"' + esc(d.targetYear + '年の収入 ' + yen(revenue)) + '\">' +\n          bands + ticks + marks + labels +\n          '<text class=\"g-unit\" x=\"' + GAUGE.cx + '\" y=\"' + (GAUGE.cy + 30) + '\">万円</text>' +\n          needle +\n          '</svg>' +\n          '<div class=\"lamps\">' +\n          '<span class=\"lamp' + (lamp !== '正常' ? ' on' : '') + '\"></span>' +\n          '<span class=\"lamp' + (lamp === '警告' ? ' on alert' : '') + '\"></span>' +\n          '</div>' +\n          '<div class=\"odo\">' +\n          '<span class=\"odo-k\">' + d.targetYear + '</span>' +\n          '<span class=\"odo-v\">' + yen(revenue) + '</span>' +\n          '</div>' +\n          '</div>' +\n          (nearest\n            ? '<div class=\"gauge-note\">' + esc(nearest.name) + 'まで あと <b>' +\n              (nearest.remaining < 0 ? yen(-nearest.remaining) + ' 超過' : yen(nearest.remaining)) + '</b></div>'\n            : '') +\n          '</div>'\n        );\n      }\n\n      /* ---------- ホーム ---------- */\n      function renderHome() {\n        var d = DATA;\n        var html = '';\n\n        html += speedometer(d);\n        html += card(\n          d.targetYear + '年の収入（額面）の内訳',\n          '<div class=\"split\">' +\n            '<div class=\"chip\"><div class=\"k\">給与</div><div class=\"v\">' + yen(d.annual.salaryRevenue) + '</div></div>' +\n            '<div class=\"chip\"><div class=\"k\">事業</div><div class=\"v\">' + yen(d.annual.businessRevenue) + '</div></div>' +\n            '<div class=\"chip\"><div class=\"k\">雑</div><div class=\"v\">' + yen(d.annual.miscRevenue) + '</div></div>' +\n            '</div>'\n        );\n\n        var wallsHtml = '';\n        (d.walls || []).forEach(function (w) {\n          var over = w.remaining < 0;\n          wallsHtml +=\n            '<div class=\"wall\">' +\n            '<div class=\"head\"><span class=\"name\">' + esc(w.name) + '</span>' + badge(w.status) + '</div>' +\n            '<div class=\"rest' + (over ? ' neg' : '') + '\">' +\n            (over ? '超過 ' : '') + yen(Math.abs(w.remaining)) + '</div>' +\n            bar(w.ratio, w.status) +\n            '<div class=\"meta\"><span class=\"sub\">' + yen(w.amount) + ' のうち ' + pct(w.ratio) + '</span>' +\n            '<span class=\"sub\">更新 ' + esc(w.lastUpdated) + '</span></div>' +\n            (w.note ? '<div class=\"sub\" style=\"margin-top:7px\">' + esc(w.note) + '</div>' : '') +\n            '</div>';\n        });\n        html += card('壁までの残り', wallsHtml || '<div class=\"empty\">壁が登録されていません</div>');\n\n        var hoursHtml = '';\n        if (!(d.hours || []).length) {\n          hoursHtml = '<div class=\"empty\">今月の勤務データはまだありません</div>';\n        } else {\n          d.hours.forEach(function (h, i) {\n            hoursHtml +=\n              '<div class=\"' + (i ? 'block' : '') + '\">' +\n              '<div class=\"head\" style=\"display:flex;justify-content:space-between;align-items:center\">' +\n              '<h3>' + esc(h.companyName) + '</h3>' + badge(h.status) + '</div>' +\n              bar(h.ratio, h.status) +\n              '<div class=\"row\"><span class=\"sub\">' + h.hours + ' / ' + h.limit + ' 時間（' + pct(h.ratio) + '）' +\n              (h.confirmed ? '' : ' ・暫定') + '</span>' +\n              '<span class=\"sub\">' + h.days + '日 ' + yen(h.amount) + '</span></div>' +\n              '</div>';\n          });\n        }\n        html += card('今月（' + esc(d.yearMonth) + '）の労働時間', hoursHtml);\n\n        var weekly = (d.weekly || []).filter(function (w) { return w.isCurrentWeek; });\n        if (weekly.length) {\n          var weeklyHtml = '';\n          weekly.forEach(function (w, i) {\n            weeklyHtml +=\n              '<div class=\"' + (i ? 'block' : '') + '\">' +\n              '<div class=\"head\" style=\"display:flex;justify-content:space-between;align-items:center\">' +\n              '<h3>' + esc(w.companyName) + '</h3>' + badge(w.status) + '</div>' +\n              bar(w.ratio, w.status) +\n              '<div class=\"row\"><span class=\"sub\">' + w.hours + ' / ' + w.limit + ' 時間</span>' +\n              '<span class=\"sub\">残り ' + w.remainingHours + 'h</span></div></div>';\n          });\n          html += card('今週（' + esc(weekly[0].weekStart) + ' 〜 ' + esc(weekly[0].weekEnd) + '）', weeklyHtml);\n        }\n\n        var consecutive = (d.consecutive || []).filter(function (c) { return c.requiredMonths >= 2; });\n        if (consecutive.length) {\n          var conHtml = '';\n          consecutive.forEach(function (c, i) {\n            conHtml +=\n              '<div class=\"' + (i ? 'block' : '') + '\">' +\n              '<div class=\"head\" style=\"display:flex;justify-content:space-between;align-items:center\">' +\n              '<h3>' + esc(c.companyName) + '</h3>' + badge(c.status) + '</div>' +\n              '<div class=\"sub\" style=\"margin-top:6px\">月' + c.limit + '時間以上が' + c.requiredMonths + 'ヶ月連続で対象</div>' +\n              '<div class=\"sub\" style=\"margin-top:3px\">' + c.months.map(function (m) {\n                return esc(m.yearMonth) + ' <b>' + m.hours + 'h</b>' + (m.over ? '（超）' : '');\n              }).join('　/　') + '</div>' +\n              (c.message ? '<div class=\"sub\" style=\"margin-top:7px\">' + esc(c.message) + '</div>' : '') +\n              '</div>';\n          });\n          html += card('連続月の判定', conHtml);\n        }\n\n        var listHtml = '';\n        if (!(d.recentEntries || []).length) {\n          listHtml = '<div class=\"empty\">まだ取り込まれた勤務がありません</div>';\n        } else {\n          listHtml = '<ul class=\"list\">';\n          d.recentEntries.forEach(function (e) {\n            listHtml +=\n              '<li><div class=\"row\"><span><b>' + esc(e.date.slice(5)) + '</b>　' + esc(e.companyName) +\n              (e.reconciled ? ' <span class=\"badge s-OK\">照合済</span>' : '') + '</span>' +\n              '<span class=\"v strong\">' + yen(e.amount) + '</span></div>' +\n              '<div class=\"sub\">' + esc(e.startTime) + '-' + esc(e.endTime) + '　' + e.workedHours + '時間' +\n              (e.allowance ? '　手当 ' + yen(e.allowance) : '') +\n              (e.fixedAmount ? '　<span class=\"badge s-INFO\">支給額</span>' : '') + '</div></li>';\n          });\n          listHtml += '</ul>';\n        }\n        html += card('直近の勤務', listHtml);\n\n        el('view-home').innerHTML = html;\n      }\n\n      /* ---------- 月ごとの給料 ---------- */\n      // 振り込まれた月（年収の壁と同じ数え方）と、働いた月を切り替えて見る\n      var MONTHLY_KEY = 'monthlyMode';\n      var monthlyMode = (function () {\n        try { return localStorage.getItem(MONTHLY_KEY) === 'worked' ? 'worked' : 'paid'; } catch (e) { return 'paid'; }\n      })();\n      // 上の52pxは、触ったときの金額表示（ツールチップ）専用の帯。柱に重ならないようにするため\n      var MCHART = { w: 340, h: 230, left: 40, right: 6, top: 52, bottom: 196 };\n\n      function monthlyValue(mo) {\n        return monthlyMode === 'worked' ? mo.worked.amount : mo.paid.amount;\n      }\n\n      /** 目盛りの上限。半分の目盛りもきりのいい数（5万・10万・15万…）になるようにする */\n      function niceMax(v) {\n        var step = v > 200000 ? 100000 : 50000;\n        return Math.max(100000, Math.ceil(v / step) * step);\n      }\n\n      function manYen(v) {\n        var man = v / 10000;\n        return (Math.round(man * 10) / 10).toString() + '万';\n      }\n\n      /** 上だけ4pxの角丸、下は四角の柱（基準線から伸びる） */\n      function columnPath(x, y, w, h, roundTop) {\n        if (h <= 0) return '';\n        var r = roundTop ? Math.min(4, h, w / 2) : 0;\n        var b = y + h;\n        return 'M' + x + ' ' + b + 'V' + (y + r) +\n          (r ? 'Q' + x + ' ' + y + ' ' + (x + r) + ' ' + y : '') +\n          'H' + (x + w - r) +\n          (r ? 'Q' + (x + w) + ' ' + y + ' ' + (x + w) + ' ' + (y + r) : '') +\n          'V' + b + 'Z';\n      }\n\n      function monthlyChart(m) {\n        var c = MCHART;\n        var plotW = c.w - c.left - c.right;\n        var plotH = c.bottom - c.top;\n        var slot = plotW / 12;\n        var barW = Math.min(16, slot - 6);\n        var max = niceMax(Math.max.apply(null, m.months.map(monthlyValue)));\n        var yOf = function (v) { return c.bottom - (v / max) * plotH; };\n\n        var svg = '';\n        // 目盛り（0・半分・上限）。細い実線で控えめに\n        [0, max / 2, max].forEach(function (t) {\n          var y = Math.round(yOf(t)) + 0.5;\n          svg += '<line class=\"mg-grid\" x1=\"' + c.left + '\" x2=\"' + (c.w - c.right) + '\" y1=\"' + y + '\" y2=\"' + y + '\" />' +\n            '<text class=\"mg-tick\" x=\"' + (c.left - 6) + '\" y=\"' + y + '\">' + (t ? manYen(t) : '0') + '</text>';\n        });\n\n        m.months.forEach(function (mo, i) {\n          var x = Math.round(c.left + i * slot + (slot - barW) / 2);\n          var isCurrent = mo.yearMonth === m.currentMonth;\n          if (monthlyMode === 'paid') {\n            // 入金済みを下に、まだの分（予定）を上に積む。間は2pxあける\n            var settledH = (mo.paid.settled / max) * plotH;\n            var schedH = (mo.paid.scheduled / max) * plotH;\n            var gap = settledH > 0 && schedH > 0 ? 2 : 0;\n            var schedTop = c.bottom - settledH - gap - schedH;\n            if (settledH > 0) svg += '<path class=\"mg-bar mg-paid\" d=\"' + columnPath(x, c.bottom - settledH, barW, settledH, schedH <= 0) + '\" />';\n            if (schedH > 0) svg += '<path class=\"mg-bar mg-sched\" d=\"' + columnPath(x, schedTop, barW, Math.max(1, schedH), true) + '\" />';\n          } else {\n            var h = (mo.worked.amount / max) * plotH;\n            if (h > 0) svg += '<path class=\"mg-bar mg-paid\" d=\"' + columnPath(x, c.bottom - h, barW, h, true) + '\" />';\n          }\n          // 今月だけ柱の上に金額を出す（ほかの月は下の表と、触ったときの表示で見る）\n          var v = monthlyValue(mo);\n          if (isCurrent && v > 0) {\n            svg += '<text class=\"mg-cap\" x=\"' + (x + barW / 2) + '\" y=\"' + (yOf(v) - 6) + '\">' + manYen(v) + '</text>';\n          }\n          svg += '<text class=\"mg-month' + (isCurrent ? ' now' : '') + '\" x=\"' + (x + barW / 2) + '\" y=\"' + (c.bottom + 16) + '\">' + (i + 1) + '</text>';\n          // 触れる範囲は柱より広く（月の幅いっぱい・グラフの高さいっぱい）\n          svg += '<rect class=\"mg-hit\" data-i=\"' + i + '\" tabindex=\"0\" role=\"img\" aria-label=\"' +\n            esc(monthLabel(mo.yearMonth) + ' ' + yen(v)) + '\" x=\"' + (c.left + i * slot) + '\" y=\"' + c.top +\n            '\" width=\"' + slot + '\" height=\"' + (plotH + 20) + '\" />';\n        });\n\n        return (\n          '<div class=\"mg-wrap\" id=\"mg-wrap\">' +\n          '<svg viewBox=\"0 0 ' + c.w + ' ' + c.h + '\" class=\"mg-svg\" aria-label=\"' +\n          esc(m.targetYear + '年の月ごとの給料') + '\">' + svg + '</svg>' +\n          '<div class=\"mg-tip\" id=\"mg-tip\" hidden><div class=\"v\" id=\"mg-tip-v\"></div><div class=\"k\" id=\"mg-tip-k\"></div></div>' +\n          '</div>'\n        );\n      }\n\n      function monthlyTable(m) {\n        var rows = m.months.filter(function (mo) {\n          return monthlyValue(mo) > 0 || mo.yearMonth === m.currentMonth;\n        });\n        if (!rows.length) return '<div class=\"empty\">まだ記録がありません</div>';\n        var html = '<div class=\"mg-table\">';\n        rows.slice().reverse().forEach(function (mo) {\n          var b = monthlyMode === 'worked' ? mo.worked : mo.paid;\n          var sub = monthlyMode === 'worked'\n            ? b.days + '日 / ' + b.hours + '時間'\n            : (b.scheduled > 0 ? 'うち予定 ' + yen(b.scheduled) : '入金済');\n          html +=\n            '<details class=\"mg-row\"' + (mo.yearMonth === m.currentMonth ? ' open' : '') + '>' +\n            '<summary><span class=\"m\">' + esc(monthLabel(mo.yearMonth)) +\n            (mo.yearMonth === m.currentMonth ? ' <span class=\"badge s-INFO\">今月</span>' : '') +\n            '</span><span class=\"v strong\">' + yen(b.amount) + '</span></summary>' +\n            '<div class=\"sub\">' + esc(sub) + '</div>';\n          b.companies.forEach(function (co) {\n            html += '<div class=\"row mg-co\"><span>' + esc(co.companyName) +\n              ' <span class=\"sub\">' + co.days + '日 / ' + co.hours + 'h</span></span><span class=\"v\">' + yen(co.amount) + '</span></div>';\n          });\n          html += '</details>';\n        });\n        html += '</div>';\n        if (m.unassigned && m.unassigned.length) {\n          var total = 0;\n          m.unassigned.forEach(function (u) { total += u.amount; });\n          html += '<div class=\"sub\" style=\"margin-top:12px\">このほか、月を分けられない手入力の収入が <b>' + yen(total) +\n            '</b> あります（「3〜5月」のように期間で登録したもの）。</div>';\n        }\n        return html;\n      }\n\n      function monthlyCard() {\n        var m = DATA.monthly;\n        if (!m || !m.months) return '';\n        var yearTotal = 0;\n        m.months.forEach(function (mo) { yearTotal += monthlyValue(mo); });\n        var toggle =\n          '<div class=\"seg\" role=\"tablist\">' +\n          '<button type=\"button\" role=\"tab\" data-mode=\"paid\" aria-selected=\"' + (monthlyMode === 'paid') + '\" class=\"' + (monthlyMode === 'paid' ? 'on' : '') + '\">振り込まれた月</button>' +\n          '<button type=\"button\" role=\"tab\" data-mode=\"worked\" aria-selected=\"' + (monthlyMode === 'worked') + '\" class=\"' + (monthlyMode === 'worked' ? 'on' : '') + '\">働いた月</button>' +\n          '</div>';\n        var legend = monthlyMode === 'paid'\n          ? '<div class=\"mg-legend\"><span><i class=\"mg-key mg-paid\"></i>入金済</span><span><i class=\"mg-key mg-sched\"></i>予定</span></div>'\n          : '';\n        var note = monthlyMode === 'paid'\n          ? '支給日の月で数えています（年収の壁と同じ数え方）。'\n          : '働いた日の月で数えています。振り込まれるのは翌月以降です。';\n        return card(\n          '月ごとの給料（額面）',\n          toggle +\n            '<div class=\"row\" style=\"margin-top:12px\"><span class=\"sub\">' + m.targetYear + '年の合計（カレンダー分）</span><span class=\"v strong\">' + yen(yearTotal) + '</span></div>' +\n            legend + monthlyChart(m) +\n            '<div class=\"sub\" style=\"margin:4px 0 12px\">' + note + '</div>' +\n            monthlyTable(m)\n        );\n      }\n\n      function bindMonthly() {\n        var wrap = el('mg-wrap');\n        var tip = el('mg-tip');\n        Array.prototype.forEach.call(document.querySelectorAll('.seg button[data-mode]'), function (b) {\n          b.addEventListener('click', function () {\n            monthlyMode = b.getAttribute('data-mode');\n            try { localStorage.setItem(MONTHLY_KEY, monthlyMode); } catch (e) { /* 保存できなくても動く */ }\n            renderIncome();\n          });\n        });\n        if (!wrap || !tip) return;\n        var show = function (target) {\n          var i = target && target.getAttribute ? target.getAttribute('data-i') : null;\n          if (i === null || i === undefined) return;\n          var mo = DATA.monthly.months[Number(i)];\n          var b = monthlyMode === 'worked' ? mo.worked : mo.paid;\n          // 名前や金額は textContent で入れる（HTMLとして解釈させない）\n          el('mg-tip-v').textContent = yen(b.amount);\n          el('mg-tip-k').textContent = monthLabel(mo.yearMonth) +\n            (monthlyMode === 'paid' && b.scheduled > 0 ? '（うち予定 ' + yen(b.scheduled) + '）' : '') +\n            (monthlyMode === 'worked' ? '（' + b.hours + '時間）' : '');\n          var slot = (MCHART.w - MCHART.left - MCHART.right) / 12;\n          var center = (MCHART.left + slot * Number(i) + slot / 2) / MCHART.w * 100;\n          tip.style.left = Math.max(14, Math.min(86, center)) + '%';\n          tip.hidden = false;\n        };\n        var hide = function () { tip.hidden = true; };\n        wrap.addEventListener('pointerover', function (e) { show(e.target); });\n        wrap.addEventListener('pointerdown', function (e) { show(e.target); });\n        wrap.addEventListener('focusin', function (e) { show(e.target); });\n        wrap.addEventListener('pointerleave', hide);\n        wrap.addEventListener('focusout', hide);\n      }\n\n      /* ---------- 収入 ---------- */\n      /** 支給日ごとの振込予定。会社ごとに締め日と支給日が違うのでここでまとめて見せる */\n      function paymentsHtml() {\n        var list = DATA.payments || [];\n        if (!list.length) return '<div class=\"empty\">まだ振込予定がありません</div>';\n\n        // 同じ支給日に複数社から振り込まれることがあるので、日付でまとめる\n        var byDate = {};\n        var order = [];\n        list.forEach(function (p) {\n          if (!byDate[p.payDate]) { byDate[p.payDate] = []; order.push(p.payDate); }\n          byDate[p.payDate].push(p);\n        });\n        order.sort();\n\n        var html = '';\n        order.forEach(function (date, i) {\n          var group = byDate[date];\n          var total = 0;\n          var paid = true;\n          group.forEach(function (p) { total += p.amount; if (!p.isPaid) paid = false; });\n\n          html +=\n            '<div class=\"' + (i ? 'block' : '') + '\">' +\n            '<div class=\"row\"><span><b>' + esc(formatPayDate(date)) + '</b>' +\n            (paid ? ' <span class=\"badge s-OK\">入金済</span>' : ' <span class=\"badge s-INFO\">予定</span>') +\n            '</span><span class=\"v strong\">' + yen(total) + '</span></div>';\n\n          group.forEach(function (p) {\n            html +=\n              '<div class=\"sub\" style=\"margin-top:4px\">' + esc(p.companyName) + '　' +\n              esc(shortRange(p.periodFrom, p.periodTo)) + ' の分　' +\n              p.days + '日 / ' + p.hours + '時間　' + yen(p.amount) +\n              (p.confirmed ? '' : '　<span class=\"badge s-注意\">サイクル暫定</span>') +\n              (p.moved ? '<br />　本来は ' + esc(formatPayDate(p.scheduledDate)) + '（休日のため前後にずれています）' : '') +\n              '</div>';\n          });\n          html += '</div>';\n        });\n        return html;\n      }\n\n      function formatPayDate(dateStr) {\n        var m = String(dateStr || '').match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n        if (!m) return String(dateStr || '');\n        var week = ['日', '月', '火', '水', '木', '金', '土'];\n        var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));\n        return Number(m[2]) + '月' + Number(m[3]) + '日（' + week[d.getDay()] + '）';\n      }\n\n      function shortRange(from, to) {\n        return String(from || '').slice(5).replace('-', '/') + '〜' + String(to || '').slice(5).replace('-', '/');\n      }\n\n      function renderIncome() {\n        var a = DATA.annual;\n        var html = '';\n\n        html += card(\n          '年間収入（額面）　※源泉徴収前の総支給額',\n          row('給与収入（カレンダー）', yen(a.calendarRevenue)) +\n            (a.allowanceTotal ? row('　うち手当', yen(a.allowanceTotal)) : '') +\n            row('給与収入（手入力）', yen(a.manualSalaryRevenue)) +\n            row('事業収入', yen(a.businessRevenue)) +\n            row('雑収入', yen(a.miscRevenue)) +\n            totalRow('合計（壁の判定に使用）', yen(a.totalRevenue)) +\n            (a.byPayDate\n              ? '<div class=\"sub\" style=\"margin-top:10px\">' +\n                '給与は「振り込まれた日」が属する年の収入として数えています（税法上の扱い）。' +\n                (a.carriedInRevenue ? '<br />前年に働いて今年振り込まれた分: ' + yen(a.carriedInRevenue) : '') +\n                (a.carriedOutRevenue ? '<br />今年働いて来年振り込まれる分: ' + yen(a.carriedOutRevenue) + '（今年には数えていません）' : '') +\n                '</div>'\n              : '')\n        );\n\n        html += monthlyCard();\n        html += card('振込予定（支給日ごと）', paymentsHtml());\n\n        html += card(\n          '合計所得金額　※収入額とは別の数値',\n          row('給与所得', yen(a.salaryIncome)) +\n            '<div class=\"sub\">給与収入 ' + yen(a.salaryRevenue) + ' − 控除 ' + yen(a.salaryDeduction) + '</div>' +\n            '<div class=\"divider\"></div>' +\n            row('事業所得', yen(a.businessIncome)) +\n            '<div class=\"sub\">事業収入 ' + yen(a.businessRevenue) + ' − 経費 ' + yen(a.businessExpenses) + '</div>' +\n            '<div class=\"divider\"></div>' +\n            row('雑所得', yen(a.miscIncome)) +\n            totalRow('合計所得金額', yen(a.totalIncome))\n        );\n\n        var manualHtml = '';\n        if (!(DATA.manualEntries || []).length) {\n          manualHtml = '<div class=\"empty\">未登録です</div>';\n        } else {\n          manualHtml = '<ul class=\"list\">';\n          DATA.manualEntries.forEach(function (m) {\n            manualHtml +=\n              '<li><div class=\"row\"><span>' + esc(m.sourceName) + '</span><span class=\"v strong\">' + yen(m.amount) + '</span></div>' +\n              '<div class=\"sub\">' + esc(m.category) + '　' + esc(m.period) +\n              (m.expenses ? '　経費 ' + yen(m.expenses) : '') + '</div></li>';\n          });\n          manualHtml += '</ul>';\n        }\n        html += card('カレンダー外の収入', manualHtml);\n\n        var options = (DATA.categories || []).map(function (c) {\n          return '<option value=\"' + esc(c) + '\"' + (c === '事業所得' ? ' selected' : '') + '>' + esc(c) + '</option>';\n        }).join('');\n        html += card(\n          '収入を追加',\n          '<label for=\"mi-name\">収入元</label><input id=\"mi-name\" placeholder=\"例: 〇〇業務委託\" />' +\n            '<label for=\"mi-cat\">区分</label><select id=\"mi-cat\">' + options + '</select>' +\n            '<label for=\"mi-period\">対象期間（年が分かる形で）</label><input id=\"mi-period\" placeholder=\"例: 2026-03〜2026-05\" />' +\n            '<label for=\"mi-amount\">金額（額面・円）</label><input id=\"mi-amount\" type=\"number\" inputmode=\"numeric\" />' +\n            '<label for=\"mi-exp\">必要経費（円）</label><input id=\"mi-exp\" type=\"number\" inputmode=\"numeric\" value=\"0\" />' +\n            '<button class=\"primary\" id=\"mi-save\">登録する</button>'\n        );\n\n        el('view-income').innerHTML = html;\n        bindMonthly();\n        el('mi-save').addEventListener('click', function () {\n          call('appAddManualIncome', {\n            sourceName: el('mi-name').value,\n            category: el('mi-cat').value,\n            period: el('mi-period').value,\n            amount: el('mi-amount').value,\n            expenses: el('mi-exp').value\n          }, function (res) { toast(res.message); });\n        });\n      }\n\n      /* ---------- 見込み ---------- */\n      function renderForecast() {\n        var f = DATA.forecast || {};\n\n        if (f.pending) {\n          el('view-forecast').innerHTML = card(\n            'この先の見込み',\n            '<div class=\"skeleton\" style=\"width:70%\"></div>' +\n              '<div class=\"skeleton\" style=\"width:90%;margin-top:10px\"></div>' +\n              '<div class=\"skeleton\" style=\"width:55%;margin-top:10px\"></div>' +\n              '<div class=\"empty\" style=\"margin-top:14px\">カレンダーを読み込んでいます…</div>'\n          );\n          return;\n        }\n        if (!f.available) {\n          el('view-forecast').innerHTML = card('この先の見込み',\n            '<div class=\"empty\">' + esc(f.reason || 'まだ取得できていません') + '</div>');\n          return;\n        }\n\n        var html = '';\n        html +=\n          '<div class=\"hero\" style=\"background:linear-gradient(160deg,#0f766e,#0891b2)\">' +\n          '<div class=\"label\">この先' + f.days + '日の予定</div>' +\n          '<div class=\"amount\">' + f.plannedCount + '件 / ' + f.plannedHours + '時間</div>' +\n          '<div class=\"sub\">予定分の収入 ' + yen(f.plannedRevenue) + '　（' + esc(f.from) + ' 〜 ' + esc(f.to) + '）</div>' +\n          '</div>';\n\n        var adviceHtml = '';\n        if (!(f.advice || []).length) {\n          adviceHtml = '<div class=\"empty\">特にありません</div>';\n        } else {\n          f.advice.forEach(function (a) {\n            adviceHtml += '<div class=\"advice\">' + badge(a.level) + '<div>' + esc(a.text) + '</div></div>';\n          });\n        }\n        html += card('勤務調整のアドバイス', adviceHtml);\n\n        // 月ごとにまとめる。8月と9月の予定が同じ並びに混ざると読み取れないため\n        var monthsHtml = '';\n        if (!(f.months || []).length) {\n          monthsHtml = '<div class=\"empty\">この先の勤務予定はありません</div>';\n        } else {\n          var byMonth = {};\n          var monthOrder = [];\n          f.months.forEach(function (m) {\n            if (!byMonth[m.yearMonth]) { byMonth[m.yearMonth] = []; monthOrder.push(m.yearMonth); }\n            byMonth[m.yearMonth].push(m);\n          });\n          monthOrder.sort();\n\n          monthOrder.forEach(function (ym, mi) {\n            var rows = byMonth[ym];\n            var monthHours = 0;\n            var worst = '正常';\n            rows.forEach(function (m) {\n              monthHours = Math.round((monthHours + m.projectedHours) * 100) / 100;\n              if (m.status === '警告') worst = '警告';\n              else if (m.status === '注意' && worst === '正常') worst = '注意';\n            });\n\n            monthsHtml +=\n              '<div class=\"' + (mi ? 'block' : '') + '\">' +\n              '<div class=\"month-head\"><span class=\"month-name\">' + esc(monthLabel(ym)) + '</span>' +\n              '<span class=\"sub\">合計 ' + monthHours + 'h</span>' + badge(worst) + '</div>';\n\n            rows.forEach(function (m) {\n              monthsHtml +=\n                '<div class=\"month-row\">' +\n                '<div class=\"head\" style=\"display:flex;justify-content:space-between;align-items:center\">' +\n                '<h3>' + esc(m.companyName) + '</h3>' + badge(m.status) + '</div>' +\n                bar(m.ratio, m.status) +\n                '<div class=\"row\"><span class=\"sub\">実績 ' + m.actualHours + 'h ＋ 予定 ' + m.plannedHours +\n                'h ＝ <b>' + m.projectedHours + 'h</b> / ' + m.limit + 'h</span>' +\n                '<span class=\"sub\">' + (m.overHours > 0 ? m.overHours + 'h 超過' : '余裕 ' + m.remainingHours + 'h') +\n                '</span></div></div>';\n            });\n            monthsHtml += '</div>';\n          });\n        }\n        html += card('月間労働時間の見込み', monthsHtml);\n\n        var wallHtml = '';\n        (f.walls || []).forEach(function (w, i) {\n          wallHtml +=\n            '<div class=\"' + (i ? 'block' : '') + '\">' +\n            '<div class=\"head\" style=\"display:flex;justify-content:space-between;align-items:center\">' +\n            '<h3>' + esc(w.name) + '</h3>' + badge(w.status) + '</div>' +\n            bar(w.ratio, w.status) +\n            '<div class=\"row\"><span class=\"sub\">こなすと ' + yen(w.projectedRevenue) + '</span>' +\n            '<span class=\"sub\">' + (w.remaining < 0 ? yen(-w.remaining) + ' 超過' : '残り ' + yen(w.remaining)) +\n            '</span></div></div>';\n        });\n        html += card('予定を全部こなした場合', wallHtml);\n\n        if (f.pace && f.pace.available) {\n          html += card(\n            '年末の着地（目安・カレンダー分のみ）',\n            row('直近' + f.pace.months + 'ヶ月の平均', yen(f.pace.monthlyAverage) + ' / 月') +\n              row('年末までの残り', f.pace.remainingMonths + 'ヶ月') +\n              totalRow('年末見込み', yen(f.pace.yearEndEstimate)) +\n              (f.pace.reach\n                ? '<div class=\"sub\" style=\"margin-top:12px\">このペースだと ' + esc(f.pace.reach.wallName) +\n                  ' に ' + esc(f.pace.reach.yearMonth) + ' ごろ到達します。</div>'\n                : '')\n          );\n        }\n\n        el('view-forecast').innerHTML = html;\n      }\n\n      /* ---------- 照合 ---------- */\n      function renderReconcile() {\n        var form = DATA.reconcileForm;\n        var monthOpts = form.months.map(function (m) { return '<option>' + esc(m) + '</option>'; }).join('');\n        var compOpts = form.companies.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');\n\n        var html = card(\n          '月次の答え合わせ',\n          '<div class=\"sub\">給与明細の合計額（額面）を入れると、カレンダーからの推定額との差が出ます。</div>' +\n            '<label for=\"rc-month\">対象月</label><select id=\"rc-month\">' + monthOpts + '</select>' +\n            '<label for=\"rc-company\">勤務先</label><select id=\"rc-company\">' + compOpts + '</select>' +\n            '<div class=\"estimate\"><div class=\"k\">カレンダーからの推定額</div><div class=\"v\" id=\"rc-est\">-</div></div>' +\n            '<label for=\"rc-actual\">実際の支給額（額面・円）</label><input id=\"rc-actual\" type=\"number\" inputmode=\"numeric\" />' +\n            '<label for=\"rc-note\">メモ（任意）</label><input id=\"rc-note\" placeholder=\"交通費込み など\" />' +\n            '<button class=\"primary\" id=\"rc-save\">保存して差分を見る</button>'\n        );\n\n        var histHtml = '';\n        if (!(DATA.reconcileEntries || []).length) {\n          histHtml = '<div class=\"empty\">まだ入力がありません</div>';\n        } else {\n          histHtml = '<ul class=\"list\">';\n          DATA.reconcileEntries.forEach(function (r) {\n            histHtml +=\n              '<li><div class=\"row\"><span><b>' + esc(r.yearMonth) + '</b>　' + esc(r.companyName) + '</span>' +\n              badge(r.status) + '</div>' +\n              '<div class=\"sub\">推定 ' + yen(r.estimated) + '　実額 ' + yen(r.actual) + '　差分 ' + yen(r.diff) + '</div></li>';\n          });\n          histHtml += '</ul>';\n        }\n        html += card('履歴', histHtml);\n\n        el('view-reconcile').innerHTML = html;\n\n        function updateEstimate() {\n          var key = el('rc-month').value + '\\t' + el('rc-company').value;\n          var v = form.estimates[key];\n          el('rc-est').textContent = v === undefined ? '-' : yen(v);\n        }\n        el('rc-month').addEventListener('change', updateEstimate);\n        el('rc-company').addEventListener('change', updateEstimate);\n        updateEstimate();\n\n        el('rc-save').addEventListener('click', function () {\n          if (el('rc-actual').value === '') { toast('実際の支給額を入力してください'); return; }\n          call('appSaveReconciliation', {\n            yearMonth: el('rc-month').value,\n            companyName: el('rc-company').value,\n            actualAmount: el('rc-actual').value,\n            note: el('rc-note').value\n          }, function (res) { toast(res.result.message); });\n        });\n      }\n\n      /* ---------- 設定 ---------- */\n      function renderSettings() {\n        var html = '';\n        var limitsHtml = '';\n        if (!(DATA.limits || []).length) {\n          limitsHtml = '<div class=\"empty\">勤務先はカレンダーの取り込み時に自動登録されます</div>';\n        } else {\n          DATA.limits.forEach(function (l, i) {\n            limitsHtml +=\n              '<div class=\"' + (i ? 'block' : '') + '\">' +\n              '<div class=\"head\" style=\"display:flex;justify-content:space-between;align-items:center\">' +\n              '<h3>' + esc(l.companyName) + '</h3>' +\n              '<span class=\"badge s-' + (l.confirmed ? '正常\">確定' : '注意\">暫定') + '</span></div>' +\n              '<div class=\"inline\" style=\"margin-top:10px\">' +\n              '<input type=\"number\" inputmode=\"numeric\" id=\"lim-' + i + '\" value=\"' + l.limit + '\" />' +\n              '<span class=\"sub\">時間/月</span></div>' +\n              '<div class=\"inline\" style=\"margin-top:8px\">' +\n              '<input type=\"number\" inputmode=\"numeric\" id=\"wk-' + i + '\" value=\"' + (l.weeklyLimit || '') + '\" placeholder=\"未設定\" />' +\n              '<span class=\"sub\">時間/週</span></div>' +\n              '<div class=\"inline\" style=\"margin-top:8px\">' +\n              '<input type=\"number\" inputmode=\"numeric\" id=\"con-' + i + '\" value=\"' + (l.consecutiveMonths || 1) + '\" />' +\n              '<span class=\"sub\">ヶ月連続</span>' +\n              '<button class=\"small\" data-limit=\"' + i + '\">保存</button></div>' +\n              '<label class=\"check\"><input type=\"checkbox\" id=\"cfm-' + i + '\"' + (l.confirmed ? ' checked' : '') +\n              ' />会社から正式な回答をもらった</label>' +\n              (l.basis ? '<div class=\"sub\" style=\"margin-top:7px\">根拠：' + esc(l.basis) + '</div>' : '') +\n              '</div>';\n          });\n        }\n        html += card(\n          '勤務先ごとの上限（4分の3基準）',\n          '<div class=\"sub\" style=\"margin-bottom:14px\">週の上限は「正社員の週所定労働時間の4分の3」が示された場合に入れます（未設定なら判定しません）。' +\n            '連続月数は「月◯時間以上が◯ヶ月連続で対象」と言われた場合のみ変更します（通常は1）。</div>' + limitsHtml\n        );\n\n        var cycleHtml = '';\n        if (!(DATA.payCycles || []).length) {\n          cycleHtml = '<div class=\"empty\">勤務先はカレンダーの取り込み時に自動登録されます</div>';\n        } else {\n          cycleHtml = '<ul class=\"list\">';\n          DATA.payCycles.forEach(function (c) {\n            cycleHtml +=\n              '<li><div class=\"row\"><span><b>' + esc(c.companyName) + '</b></span>' +\n              '<span class=\"badge s-' + (c.confirmed ? '正常\">確定' : '注意\">暫定') + '</span></div>' +\n              '<div class=\"sub\">' + esc(cutoffLabel(c.cutoffDay)) + '締め　' +\n              esc(payDayLabel(c.payMonthOffset, c.payDay)) + '払い　' +\n              '休日は' + esc(c.shiftRule || 'そのまま') + (c.shiftOnHoliday ? '（祝日も）' : '（土日のみ）') +\n              (c.note ? '<br />' + esc(c.note) : '') + '</div></li>';\n          });\n          cycleHtml += '</ul>';\n        }\n        html += card(\n          '給与サイクル（締め日と支給日）',\n          '<div class=\"sub\" style=\"margin-bottom:14px\">年収の壁は「振り込まれた日」が属する年で判定します。' +\n            '会社に確認できたら、スプレッドシートの「給与サイクル」タブで直してください。' +\n            (DATA.holidaysAvailable ? '' : '<br />※祝日をまだ取り込めていないため、いまは土日だけで判定しています。') +\n            '</div>' + cycleHtml\n        );\n\n        html += card(\n          'カレンダーの取り込み',\n          '<div class=\"sub\">アプリを開くたびに直近1ヶ月分を自動で取り込みます。毎晩23:30にも実行されます。</div>' +\n            '<button class=\"primary\" id=\"run-today\">今日の分を取り込む</button>' +\n            '<label for=\"imp-date\">日付を指定して取り込み直す</label>' +\n            '<div class=\"inline\"><input id=\"imp-date\" placeholder=\"2026-08-20\" /><button class=\"small\" id=\"imp-run\">実行</button></div>'\n        );\n\n        html += card(\n          'データ',\n          '<div class=\"sub\">明細の修正や過去データの一括編集はスプレッドシートから行えます。</div>' +\n            '<div style=\"margin-top:12px\"><a href=\"' + esc(DATA.spreadsheetUrl) + '\" target=\"_blank\" rel=\"noopener\">スプレッドシートを開く →</a></div>' +\n            '<div class=\"sub\" style=\"margin-top:12px\">最終更新 ' + esc(DATA.generatedAt) + '</div>'\n        );\n\n        el('view-settings').innerHTML = html;\n\n        Array.prototype.forEach.call(document.querySelectorAll('[data-limit]'), function (btn) {\n          btn.addEventListener('click', function () {\n            var i = btn.getAttribute('data-limit');\n            call('appSaveCompanyLimit', {\n              companyName: DATA.limits[i].companyName,\n              limit: el('lim-' + i).value,\n              weeklyLimit: el('wk-' + i).value,\n              consecutiveMonths: el('con-' + i).value,\n              confirmed: el('cfm-' + i).checked\n            }, function (res) { toast(res.message); });\n          });\n        });\n        el('run-today').addEventListener('click', function () {\n          call('appRunToday', undefined, function () { toast('今日の予定を取り込みました'); });\n        });\n        el('imp-run').addEventListener('click', function () {\n          call('appImportDate', el('imp-date').value, function (res) {\n            toast(res.message);\n            if (res.errors && res.errors.length) toast(res.errors[0]);\n          });\n        });\n      }\n\n      /* ---------- 描画 ---------- */\n      function setStatus(text, spinning) {\n        var level = DATA && DATA.level ? DATA.level : '正常';\n        el('updated').innerHTML = spinning\n          ? '<span class=\"spin\"></span>' + esc(text)\n          : '<span class=\"dot ' + esc(level) + '\"></span>' + esc(text);\n      }\n\n      function render() {\n        if (DATA.error) {\n          el('view-home').innerHTML = card('エラー', '<div class=\"sub\">' + esc(DATA.error) + '</div>');\n          setStatus('エラー', false);\n          el('disclaimer').textContent = DATA.disclaimer || '';\n          return;\n        }\n        setStatus(DATA.generatedAt + '　' + DATA.level, false);\n        el('disclaimer').textContent = DATA.disclaimer;\n        renderHome();\n        renderIncome();\n        renderForecast();\n        renderReconcile();\n        renderSettings();\n      }\n\n      /* ---------- 表示後の同期 ---------- */\n      function syncCalendar(showToast) {\n        setStatus('カレンダーを確認中…', true);\n        google.script.run\n          .withSuccessHandler(function (data) {\n            DATA = data;\n            render();\n            if (showToast) toast('最新の状態にしました');\n          })\n          .withFailureHandler(function (err) {\n            setStatus('同期できませんでした', false);\n            toast('エラー: ' + err.message);\n          })\n          .appSyncCalendar();\n      }\n\n      Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (btn) {\n        btn.addEventListener('click', function () {\n          var view = btn.getAttribute('data-view');\n          Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {\n            b.classList.toggle('active', b === btn);\n          });\n          Array.prototype.forEach.call(document.querySelectorAll('.view'), function (v) {\n            v.classList.toggle('active', v.id === 'view-' + view);\n          });\n          window.scrollTo(0, 0);\n        });\n      });\n\n      el('reload').addEventListener('click', function () { syncCalendar(true); });\n\n      /* ---------- 起動画面とエンジン音 ---------- */\n      // ブラウザは利用者が操作するまで音を鳴らせない決まりなので、\n      // スタートボタンを押した流れの中で再生を始める。\n      var SOUND_KEY = 'engineSound';\n      var IDLE_LOOP_SECONDS = Number('<?!= idleLoopSeconds ?>') || 1.65;\n\n      function soundEnabled() {\n        try { return localStorage.getItem(SOUND_KEY) !== 'off'; } catch (e) { return true; }\n      }\n      function setSoundEnabled(on) {\n        try { localStorage.setItem(SOUND_KEY, on ? 'on' : 'off'); } catch (e) { /* 保存できなくても動く */ }\n      }\n\n      /**\n       * エンジン音の再生。\n       *\n       * アイドリング音は開いている間ずっと繰り返すが、mp3 は符号化の都合で\n       * 前後に無音が入るため <audio loop> だと1回転ごとに途切れる。\n       * Web Audio API で読み込み、無音を除いた区間だけを繰り返すことで\n       * 継ぎ目を無くしている。Web Audio が使えない場合は <audio loop> に戻す。\n       */\n      var Engine = (function () {\n        var ctx = null;\n        var idleSource = null;\n        var idleGain = null;\n        var idleBuffer = null;\n        var running = false;\n        var startEl = el('engine');\n        var idleEl = el('idle');\n\n        function audioContext() {\n          if (ctx) return ctx;\n          var Ctor = window.AudioContext || window.webkitAudioContext;\n          if (!Ctor) return null;\n          try { ctx = new Ctor(); } catch (e) { ctx = null; }\n          return ctx;\n        }\n\n        function decodeIdle() {\n          // 2回目以降は読み込み済みのものを返す（null を返すと繰り返しが途切れる方に落ちる）\n          if (idleBuffer) return Promise.resolve(idleBuffer);\n          var context = audioContext();\n          if (!context || !idleEl) return Promise.resolve(null);\n          var src = idleEl.getAttribute('src') || '';\n          var base64 = src.slice(src.indexOf(',') + 1);\n          var binary;\n          try { binary = atob(base64); } catch (e) { return Promise.resolve(null); }\n          var bytes = new Uint8Array(binary.length);\n          for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);\n          return new Promise(function (resolve) {\n            var done = function (buffer) { idleBuffer = buffer; resolve(buffer); };\n            var fail = function () { resolve(null); };\n            try {\n              var ret = context.decodeAudioData(bytes.buffer, done, fail);\n              if (ret && ret.then) ret.then(done, fail);\n            } catch (e) { fail(); }\n          });\n        }\n\n        /** mp3 の先頭に無音が残っている場合があるので、音が始まる位置を探す */\n        function firstSoundAt(buffer) {\n          var data = buffer.getChannelData(0);\n          var limit = Math.min(data.length, Math.floor(buffer.sampleRate * 0.2));\n          for (var i = 0; i < limit; i++) {\n            if (Math.abs(data[i]) > 0.003) return i / buffer.sampleRate;\n          }\n          return 0;\n        }\n\n        function startIdleWebAudio(buffer, at) {\n          var context = audioContext();\n          if (!context || !buffer) return false;\n          var from = firstSoundAt(buffer);\n          var source = context.createBufferSource();\n          source.buffer = buffer;\n          source.loop = true;\n          source.loopStart = from;\n          source.loopEnd = Math.min(buffer.duration, from + IDLE_LOOP_SECONDS);\n\n          var gain = context.createGain();\n          gain.gain.setValueAtTime(0, at);\n          gain.gain.linearRampToValueAtTime(0.32, at + 0.5);\n          source.connect(gain);\n          gain.connect(context.destination);\n          source.start(at, from);\n\n          idleSource = source;\n          idleGain = gain;\n          return true;\n        }\n\n        function startIdleFallback() {\n          if (!idleEl) return;\n          try {\n            idleEl.volume = 0.32;\n            idleEl.currentTime = 0;\n            var p = idleEl.play();\n            if (p && p.catch) p.catch(function () {});\n          } catch (e) { /* 鳴らせなくても画面は動く */ }\n        }\n\n        function stopIdle() {\n          var context = ctx;\n          if (idleSource && context) {\n            try {\n              var now = context.currentTime;\n              idleGain.gain.cancelScheduledValues(now);\n              idleGain.gain.setValueAtTime(idleGain.gain.value, now);\n              idleGain.gain.linearRampToValueAtTime(0, now + 0.25);\n              idleSource.stop(now + 0.3);\n            } catch (e) { /* すでに止まっていることがある */ }\n          }\n          idleSource = null;\n          idleGain = null;\n          if (idleEl) { try { idleEl.pause(); } catch (e) { /* 無視 */ } }\n        }\n\n        return {\n          get running() { return running; },\n\n          /** スタートボタンから呼ぶ。始動音を鳴らし、続けてアイドリングに移る */\n          start: function () {\n            if (!soundEnabled()) return 0;\n            running = true;\n            var context = audioContext();\n            if (context && context.state === 'suspended') {\n              try { context.resume(); } catch (e) { /* 無視 */ }\n            }\n\n            var startedAt = Date.now();\n            var duration = 4.3;\n            if (startEl) {\n              try {\n                startEl.currentTime = 0;\n                var p = startEl.play();\n                if (p && p.catch) p.catch(function () {});\n                if (startEl.duration) duration = startEl.duration;\n              } catch (e) { /* 鳴らせなくても進む */ }\n            }\n\n            // 始動音の終わり際にアイドリングを重ねる（途切れて聞こえないように）\n            var overlap = 0.6;\n            decodeIdle().then(function (buffer) {\n              if (!running) return;\n              var elapsed = (Date.now() - startedAt) / 1000;\n              var wait = Math.max(0, duration - overlap - elapsed);\n              if (buffer && context) {\n                startIdleWebAudio(buffer, context.currentTime + wait);\n              } else {\n                setTimeout(function () { if (running) startIdleFallback(); }, wait * 1000);\n              }\n            });\n            return duration;\n          },\n\n          stop: function () {\n            running = false;\n            stopIdle();\n            if (startEl) { try { startEl.pause(); } catch (e) { /* 無視 */ } }\n          },\n\n          /** 画面を離れたときは黙らせ、戻ってきたら鳴らし直す */\n          pause: function () {\n            if (!running) return;\n            stopIdle();\n          },\n          resume: function () {\n            if (!running || idleSource || !soundEnabled()) return;\n            var context = audioContext();\n            decodeIdle().then(function (buffer) {\n              if (!running) return;\n              if (buffer && context) startIdleWebAudio(buffer, context.currentTime);\n              else startIdleFallback();\n            });\n          }\n        };\n      })();\n\n      function paintEngineButton() {\n        var btn = el('engine-toggle');\n        if (!btn) return;\n        var on = soundEnabled();\n        btn.textContent = on ? '🏍 ON' : '🏍 OFF';\n        btn.classList.toggle('off', !on);\n        btn.setAttribute('aria-pressed', on ? 'true' : 'false');\n      }\n\n      function enterApp() {\n        var ignition = el('ignition');\n        if (!ignition || ignition.classList.contains('gone')) return;\n        ignition.classList.add('gone');\n        setTimeout(function () { ignition.style.display = 'none'; }, 600);\n      }\n\n      (function setupIgnition() {\n        var starter = el('starter');\n        var muteBtn = el('mute-toggle');\n        if (!starter) return;\n\n        function paintMute() {\n          muteBtn.textContent = soundEnabled() ? '音を消す' : '音を出す';\n        }\n        paintMute();\n        paintEngineButton();\n\n        muteBtn.addEventListener('click', function (event) {\n          event.stopPropagation();\n          setSoundEnabled(!soundEnabled());\n          paintMute();\n          paintEngineButton();\n        });\n\n        starter.addEventListener('click', function () {\n          starter.classList.add('cranking');\n          Engine.start();\n          // エンジンがかかりだしてから画面に入ると気持ちがよい\n          var wait = soundEnabled() ? 900 : 320;\n          setTimeout(function () {\n            starter.classList.remove('cranking');\n            enterApp();\n          }, wait);\n        });\n\n        var engineBtn = el('engine-toggle');\n        if (engineBtn) {\n          engineBtn.addEventListener('click', function () {\n            var on = !soundEnabled();\n            setSoundEnabled(on);\n            paintEngineButton();\n            paintMute();\n            if (on) {\n              // 押した操作の中なので、ここから鳴らし始められる\n              if (Engine.running) Engine.resume();\n              else Engine.start();\n            } else {\n              Engine.stop();\n            }\n          });\n        }\n\n        // 他のアプリに切り替えている間は黙らせる\n        document.addEventListener('visibilitychange', function () {\n          if (document.hidden) Engine.pause();\n          else Engine.resume();\n        });\n      })();\n\n      render();\n      // 画面を出したあとにカレンダーを読む。ここを待つと表示が遅くなるため。\n      // 起動画面を見ている間に裏で終わるので、体感では待ち時間が消える。\n      if (DATA.needsSync) syncCalendar(false);\n    </script>\n  </body>\n</html>\n";
 
