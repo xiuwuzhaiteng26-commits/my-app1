@@ -21,3 +21,20 @@ npm run lint     # Lint実行
 
 - React + TypeScript
 - Vite
+
+---
+
+# 年収の壁・労働時間管理ツール（Google Apps Script）
+
+同じリポジトリに、バイト掛け持ち向けの「年収の壁（123万円 / 130万円）と月間労働時間を
+毎日チェックするツール」を `apps-script/` に同梱しています。Google カレンダーに書いた
+シフトを毎日23:30に読み取り、Google スプレッドシートへ集計します。
+
+Apps Script のウェブアプリとして公開すると、スマホのホーム画面に追加して使える
+専用画面（壁までの残り・当月の労働時間・月次の答え合わせ・勤務先ごとの上限設定）が開けます。
+
+セットアップと使い方は [`apps-script/README.md`](apps-script/README.md) を参照してください。
+
+```bash
+npm run test:apps-script   # 計算・解析ロジックのテスト
+```
