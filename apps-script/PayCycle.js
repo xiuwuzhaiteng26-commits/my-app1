@@ -224,3 +224,91 @@ function groupPaymentsByDate_(payments) {
     return byDate[date];
   });
 }
+
+/**
+ * 月ごとの給料（その年の1〜12月）。
+ *
+ * 同じ勤務でも「働いた月」と「振り込まれる月」がずれるので、両方を出す。
+ *   paid   … 支給日の月で数えた額（年収の壁と同じ数え方）
+ *   worked … 働いた日の月で数えた額
+ * どちらも勤務先ごとの内訳を持つ。
+ * 手入力の収入は対象期間が「3〜5月」のように幅を持つため月に割り振れない。
+ * 合計がずれないよう unassigned として別に返す。
+ */
+function aggregateMonthly_(calendarRows, manualRows, resolvePayment, today, targetYear) {
+  var todayStr = formatDate_(today);
+  var months = [];
+  for (var m = 1; m <= 12; m++) {
+    months.push({
+      yearMonth: targetYear + '-' + pad2_(m),
+      paid: { amount: 0, settled: 0, scheduled: 0, companies: {} },
+      worked: { amount: 0, hours: 0, days: 0, companies: {} }
+    });
+  }
+  var index = function (dateStr) {
+    if (yearOfDateString_(dateStr) !== targetYear) return -1;
+    return Number(String(dateStr).slice(5, 7)) - 1;
+  };
+  var addTo = function (bucket, company, amount, hours) {
+    var c = bucket.companies[company] || (bucket.companies[company] = { amount: 0, hours: 0, days: 0 });
+    c.amount += amount;
+    c.hours = round2_(c.hours + hours);
+    c.days += 1;
+  };
+
+  calendarRows.forEach(function (r) {
+    var workDate = toDateString_(r.date);
+    var company = String(r.company_name || '').trim();
+    var amount = toNumber_(r.estimated_amount);
+    var hours = toNumber_(r.worked_hours);
+
+    var wi = index(workDate);
+    if (wi >= 0) {
+      var w = months[wi].worked;
+      w.amount += amount;
+      w.hours = round2_(w.hours + hours);
+      w.days += 1;
+      addTo(w, company, amount, hours);
+    }
+
+    var payment = resolvePayment ? resolvePayment(company, workDate) : null;
+    var payDate = payment && payment.payDate ? payment.payDate : workDate;
+    var pi = index(payDate);
+    if (pi >= 0) {
+      var p = months[pi].paid;
+      p.amount += amount;
+      if (payDate <= todayStr) p.settled += amount;
+      else p.scheduled += amount;
+      addTo(p, company, amount, hours);
+    }
+  });
+
+  var toList = function (companies) {
+    return Object.keys(companies)
+      .map(function (name) {
+        var c = companies[name];
+        return { companyName: name, amount: c.amount, hours: c.hours, days: c.days };
+      })
+      .sort(function (a, b) {
+        return b.amount - a.amount;
+      });
+  };
+  months.forEach(function (mo) {
+    mo.paid.companies = toList(mo.paid.companies);
+    mo.worked.companies = toList(mo.worked.companies);
+  });
+
+  var unassigned = [];
+  (manualRows || []).forEach(function (r) {
+    var period = String(r.period == null ? '' : r.period);
+    if (yearOfDateString_(period) !== targetYear) return;
+    unassigned.push({
+      sourceName: String(r.source_name || ''),
+      category: String(r.income_category || ''),
+      period: period,
+      amount: toNumber_(r.amount)
+    });
+  });
+
+  return { targetYear: targetYear, currentMonth: formatYearMonth_(today), months: months, unassigned: unassigned };
+}

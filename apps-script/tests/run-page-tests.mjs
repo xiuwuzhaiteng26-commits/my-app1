@@ -372,6 +372,20 @@ check('起動画面: 音を消していれば鳴らさない', played, []);
   check('メーター: 針の角度が範囲内', angle >= 0 && angle <= 210, true);
 }
 
+/* ---- 月ごとの給料 ---- */
+{
+  check('月ごと: 収入タブに出す', income.indexOf('月ごとの給料') > 0, true);
+  check('月ごと: 12ヶ月の柱の当たり判定がある', (income.match(/class="mg-hit"/g) || []).length, 12);
+  check('月ごと: 振込と働いた月を切り替えられる', income.indexOf('data-mode="worked"') > 0 && income.indexOf('data-mode="paid"') > 0, true);
+  check('月ごと: 入金済と予定の凡例', income.indexOf('mg-legend') > 0, true);
+  check('月ごと: 月ごとの表がある', income.indexOf('class="mg-row"') > 0 || income.indexOf('mg-row') > 0, true);
+  const monthly = vm.runInContext('DATA.monthly', pageCtx);
+  const paidTotal = monthly.months.reduce((s, m) => s + m.paid.amount, 0);
+  const workedTotal = monthly.months.reduce((s, m) => s + m.worked.amount, 0);
+  check('月ごと: 働いた月の合計＝カレンダー分の年間', workedTotal > 0, true);
+  check('月ごと: 振込月の合計＝年収の壁で使うカレンダー分', paidTotal, vm.runInContext('DATA.annual.calendarRevenue', pageCtx));
+}
+
 /* ---- 振込予定・月ごとの見込み ---- */
 check('画面: 収入タブに振込予定を出す', income.indexOf('振込予定') > 0, true);
 check('画面: 支給日を曜日つきで出す', /\d+月\d+日（[日月火水木金土]）/.test(income), true);

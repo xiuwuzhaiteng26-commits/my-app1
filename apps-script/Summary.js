@@ -18,6 +18,7 @@ function buildSnapshot_(today, runInfo, options) {
 
   var annual = aggregateAnnual_(calendarRows, manualRows, targetYear, resolvePayment);
   var payments = aggregatePayments_(calendarRows, resolvePayment, today, targetYear);
+  var monthly = aggregateMonthly_(calendarRows, manualRows, resolvePayment, today, targetYear);
   var walls = evaluateWalls_(wallRows, annual.totalRevenue, targetYear);
   var hours = aggregateMonthlyHours_(calendarRows, limitRows, yearMonth);
   var weekly = aggregateWeeklyHours_(calendarRows, limitRows, today);
@@ -59,6 +60,7 @@ function buildSnapshot_(today, runInfo, options) {
     yearMonth: yearMonth,
     annual: annual,
     payments: payments,
+    monthly: monthly,
     holidaysAvailable: readStoredHolidays_().available,
     walls: walls,
     hours: hours,

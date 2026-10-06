@@ -245,6 +245,28 @@ function runTests() {
   var future = aggregatePayments_(payRows, resolveB, new Date(2026, 7, 1), 2026);
   check('振込予定: これからの分は未支給', future[0].isPaid, false);
 
+  /* --- 月ごとの給料 --- */
+  var moRows = [
+    { date: '2026-08-31', company_name: 'B', worked_hours: 8, estimated_amount: 10000 },
+    { date: '2026-09-02', company_name: 'B', worked_hours: 8, estimated_amount: 20000 },
+    { date: '2026-09-03', company_name: 'C', worked_hours: 4, estimated_amount: 5000 },
+    { date: '2026-12-05', company_name: 'B', worked_hours: 8, estimated_amount: 7000 }
+  ];
+  var moManual = [{ source_name: 'X', income_category: '事業所得', period: '2026-03〜2026-05', amount: 50000 }];
+  var mo = aggregateMonthly_(moRows, moManual, resolveB, new Date(2026, 8, 30), 2026);
+  check('月ごと: 12ヶ月分ある', mo.months.length, 12);
+  check('月ごと: 働いた月で数える', [mo.months[7].worked.amount, mo.months[8].worked.amount], [10000, 25000]);
+  check('月ごと: 働いた月の時間と日数', [mo.months[8].worked.hours, mo.months[8].worked.days], [12, 2]);
+  check('月ごと: 勤務先ごとの内訳（多い順）', mo.months[8].worked.companies.map(function (c) { return c.companyName; }), ['B', 'C']);
+  // 月末締め・翌月15日払い（resolveB は全社同じサイクル）。8月分は9/15、9月分は10/15
+  check('月ごと: 振り込まれた月で数える', [mo.months[8].paid.amount, mo.months[9].paid.amount], [10000, 25000]);
+  check('月ごと: 9/30時点で9月分は入金済', [mo.months[8].paid.settled, mo.months[8].paid.scheduled], [10000, 0]);
+  check('月ごと: 10月分はまだ予定', [mo.months[9].paid.settled, mo.months[9].paid.scheduled], [0, 25000]);
+  check('月ごと: 翌年払いは今年の振込に入れない', mo.months[11].paid.amount, 0);
+  check('月ごと: 働いた月なら12月に入る', mo.months[11].worked.amount, 7000);
+  check('月ごと: 月に分けられない手入力は別に返す', mo.unassigned.map(function (u) { return u.amount; }), [50000]);
+  check('月ごと: 今月', mo.currentMonth, '2026-09');
+
   /* --- 実働時間・推定収入 --- */
   check('実働時間: 9:00-18:00 休憩1h', computeWorkedHours_('09:00', '18:00', 1), 8);
   check('実働時間: 13:00-17:00 休憩0', computeWorkedHours_('13:00', '17:00', 0), 4);

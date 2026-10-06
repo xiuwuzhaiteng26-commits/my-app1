@@ -211,6 +211,7 @@ function buildAppData_(options) {
     },
     recentEntries: recent,
     payments: payments,
+    monthly: snapshot.monthly,
     payCycles: payCycles,
     holidaysAvailable: !!snapshot.holidaysAvailable,
     limits: limits,
