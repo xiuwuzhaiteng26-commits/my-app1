@@ -43,16 +43,16 @@ export default function SettingsPage({ settings, onSave }: Props) {
         <div className="row">
           <label className="radio">
             <input type="radio" checked={draft.provider === 'claude'} onChange={() => set('provider', 'claude')} />
-            Claude（有料・おすすめ）
+            Claude（有料）
           </label>
           <label className="radio">
             <input type="radio" checked={draft.provider === 'gemini'} onChange={() => set('provider', 'gemini')} />
-            Gemini（無料枠あり）
+            Gemini（無料）
           </label>
         </div>
         <p className="hint">
-          Claude は使った分だけ料金がかかります。送った内容は、初期設定ではAIの学習に使われません。
-          Gemini の無料枠は無料ですが、送った内容がGoogleのサービス改善に使われることがあるため、社内の情報を入れる場合は Claude をおすすめします。
+          Gemini の無料枠は無料ですが、送った内容（下の「社内の情報」と商談の会話）がGoogleのサービス改善に使われ、人が読むこともあります。
+          社外秘の情報・実在の大学名や人名は入れないでください。Claude は使った分だけ料金がかかりますが、送った内容は初期設定ではAIの学習に使われません。
         </p>
 
         {draft.provider === 'claude' ? (

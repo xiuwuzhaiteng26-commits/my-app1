@@ -4,7 +4,7 @@
 
 export const APP_DEFAULTS = {
   /** 使うAI。設定画面から変更できます */
-  provider: 'claude' as 'claude' | 'gemini',
+  provider: 'gemini' as 'claude' | 'gemini',
   /** Claude のモデル。設定画面から変更できます */
   claudeModel: 'claude-opus-5-5',
   /** Google AI Studio の無料枠で使えるモデル */

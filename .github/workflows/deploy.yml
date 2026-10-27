@@ -23,8 +23,15 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            sales-roleplay/package-lock.json
       - run: npm ci
       - run: npm run build
+      # 商談ロープレアプリを /my-app1/sales-roleplay/ に公開する
+      - run: npm ci && npm run build
+        working-directory: sales-roleplay
+      - run: cp -r sales-roleplay/dist dist/sales-roleplay
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
