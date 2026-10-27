@@ -76,4 +76,4 @@ npm run dev
 ## 公開（GitHub Pages）
 
 このフォルダを独立したリポジトリに移すと、`.github/workflows/deploy.yml` によって main ブランチへのpushで自動公開されます（リポジトリの Settings → Pages → Source を「GitHub Actions」にしてください）。
-インターン生は公開URLを開き、各自で無料のAPIキーを発行して使います。
+インターン生は公開URLを開き、APIキーを入力し、社内で受け取った設定ファイルを読み込んで使います。
