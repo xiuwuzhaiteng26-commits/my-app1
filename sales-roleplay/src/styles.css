@@ -127,3 +127,5 @@ ul.improve li::marker { content: '△ '; color: var(--warn); }
 .field-hint { display: block; font-weight: normal; margin-top: 2px; }
 .file-button { display: inline-block; margin: 0; padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: normal; background: var(--card); }
 .file-button input { display: none; }
+.radio { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: normal; }
+.radio input { width: auto; margin: 0; }

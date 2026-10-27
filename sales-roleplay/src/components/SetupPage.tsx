@@ -3,7 +3,7 @@ import { DIFFICULTIES, PERSONAS } from '../config/personas'
 import { APP_DEFAULTS } from '../config/settings'
 import { buildScenarioPrompt } from '../config/prompts'
 import { generateJson } from '../lib/llm'
-import type { AppSettings } from '../lib/storage'
+import { llmConfig, type AppSettings } from '../lib/storage'
 import { normalizeIssues, type Scenario, type SessionSetup } from '../lib/types'
 import { parseSamples } from '../config/knowledge'
 
@@ -35,9 +35,9 @@ export default function SetupPage({ settings, onStart }: Props) {
     setError('')
     try {
       const s = await generateJson<Scenario>(buildScenarioPrompt(setup, settings), {
-        apiKey: settings.apiKey,
-        model: settings.model,
+        ...llmConfig(settings),
         temperature: 1,
+        effort: 'medium',
       })
       setScenario(s)
     } catch (e) {
@@ -103,10 +103,10 @@ export default function SetupPage({ settings, onStart }: Props) {
             onChange={(e) => setSetup({ ...setup, maxMinutes: Number(e.target.value) })}
           />
         </label>
-        <button className="primary" onClick={create} disabled={loading || !settings.apiKey}>
+        <button className="primary" onClick={create} disabled={loading || !llmConfig(settings).apiKey}>
           {loading ? 'シナリオを作成中…' : scenario ? 'シナリオを作り直す' : 'シナリオを作成'}
         </button>
-        {!settings.apiKey && <p className="error">先に「設定」でAPIキーを入力してください。</p>}
+        {!llmConfig(settings).apiKey && <p className="error">先に「設定」でAPIキーを入力してください。</p>}
         {error && <p className="error">{error}</p>}
       </section>
 

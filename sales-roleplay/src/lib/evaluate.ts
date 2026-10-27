@@ -1,7 +1,7 @@
 // 商談の評価：AIの採点＋目線・表情の数値をまとめて総合点を出す
 import { RUBRIC } from '../config/rubric'
 import { buildEvaluationPrompt } from '../config/prompts'
-import { generateJson } from './llm'
+import { generateJson, type LlmConfig } from './llm'
 import { faceScores } from './faceAnalyzer'
 import type { ChatMessage, CriterionResult, Evaluation, FaceSummary, Knowledge, Scenario } from './types'
 
@@ -12,11 +12,12 @@ export async function evaluateSession(
   messages: ChatMessage[],
   face: FaceSummary | null,
   k: Knowledge,
-  llm: { apiKey: string; model: string },
+  llm: LlmConfig,
 ): Promise<Evaluation> {
   const raw = await generateJson<LlmEvaluation>(buildEvaluationPrompt(scenario, messages, face, k), {
     ...llm,
     temperature: 0.2,
+    effort: 'high',
   })
 
   // AIが返さなかった項目は0点にせず、総合点の計算から外す

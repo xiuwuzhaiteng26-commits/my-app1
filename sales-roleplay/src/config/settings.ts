@@ -3,7 +3,11 @@
 // ============================================================
 
 export const APP_DEFAULTS = {
-  /** Google AI Studio の無料枠で使えるモデル。設定画面から変更できます */
+  /** 使うAI。設定画面から変更できます */
+  provider: 'claude' as 'claude' | 'gemini',
+  /** Claude のモデル。設定画面から変更できます */
+  claudeModel: 'claude-opus-5-5',
+  /** Google AI Studio の無料枠で使えるモデル */
   model: 'gemini-flash-latest',
   /** 商談時間の上限（分） */
   maxMinutesLimit: 60,
@@ -17,6 +21,13 @@ export const APP_DEFAULTS = {
   /** 読み上げの速さ（1が標準） */
   ttsRate: 1.1,
 }
+
+// 設定画面で選べる Claude のモデル（料金は 100万トークンあたりの入力 / 出力）
+export const CLAUDE_MODELS = [
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5（最も賢い・$4 / $20）' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5（バランス型・$2 / $10）' },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5（最も安く速い・$0.10 / $0.50）' },
+]
 
 // MediaPipe（顔認識）の読み込み先。プログラム本体は npm run dev / build のときに public/mediapipe にコピーされます
 export const MEDIAPIPE = {

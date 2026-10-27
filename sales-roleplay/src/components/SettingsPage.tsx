@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { listModels } from '../lib/llm'
+import { listGeminiModels } from '../lib/llm'
 import { getJapaneseVoices, speak } from '../lib/speech'
 import { exportKnowledge, importKnowledge, type AppSettings } from '../lib/storage'
 import { KNOWLEDGE_FIELDS } from '../config/knowledge'
-import { APP_DEFAULTS } from '../config/settings'
+import { APP_DEFAULTS, CLAUDE_MODELS } from '../config/settings'
 
 interface Props {
   settings: AppSettings
@@ -27,7 +27,7 @@ export default function SettingsPage({ settings, onSave }: Props) {
 
   const fetchModels = async () => {
     try {
-      setModels(await listModels(draft.apiKey))
+      setModels(await listGeminiModels(draft.apiKey))
       setMessage('モデル一覧を取得しました（APIキーは有効です）')
     } catch (e) {
       setMessage((e as Error).message)
@@ -39,32 +39,78 @@ export default function SettingsPage({ settings, onSave }: Props) {
       <h2>設定</h2>
 
       <section className="card">
-        <h3>AI（Gemini API）</h3>
+        <h3>使うAI</h3>
+        <div className="row">
+          <label className="radio">
+            <input type="radio" checked={draft.provider === 'claude'} onChange={() => set('provider', 'claude')} />
+            Claude（有料・おすすめ）
+          </label>
+          <label className="radio">
+            <input type="radio" checked={draft.provider === 'gemini'} onChange={() => set('provider', 'gemini')} />
+            Gemini（無料枠あり）
+          </label>
+        </div>
         <p className="hint">
-          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
-            Google AI Studio
-          </a>
-          で無料のAPIキーを発行して貼り付けてください。キーはこのブラウザの中にだけ保存されます。
+          Claude は使った分だけ料金がかかります。送った内容は、初期設定ではAIの学習に使われません。
+          Gemini の無料枠は無料ですが、送った内容がGoogleのサービス改善に使われることがあるため、社内の情報を入れる場合は Claude をおすすめします。
         </p>
-        <label>
-          APIキー
-          <input type="password" value={draft.apiKey} onChange={(e) => set('apiKey', e.target.value.trim())} />
-        </label>
-        <label>
-          モデル
-          <div className="row">
-            <input list="models" value={draft.model} onChange={(e) => set('model', e.target.value)} />
-            <button type="button" onClick={fetchModels} disabled={!draft.apiKey}>
-              使えるモデルを確認
-            </button>
-          </div>
-          <datalist id="models">
-            {models.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-        </label>
-        <p className="hint">初期値は {APP_DEFAULTS.model}（無料枠で使えるFlash系の最新版）です。</p>
+
+        {draft.provider === 'claude' ? (
+          <>
+            <p className="hint">
+              <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noreferrer">
+                Claude Console
+              </a>
+              でAPIキーを発行して貼り付けてください（クレジットの購入が必要です）。キーはこのブラウザの中にだけ保存されます。
+            </p>
+            <label>
+              APIキー
+              <input
+                type="password"
+                value={draft.claudeApiKey}
+                onChange={(e) => set('claudeApiKey', e.target.value.trim())}
+              />
+            </label>
+            <label>
+              モデル
+              <select value={draft.claudeModel} onChange={(e) => set('claudeModel', e.target.value)}>
+                {CLAUDE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : (
+          <>
+            <p className="hint">
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
+                Google AI Studio
+              </a>
+              で無料のAPIキーを発行して貼り付けてください。キーはこのブラウザの中にだけ保存されます。
+            </p>
+            <label>
+              APIキー
+              <input type="password" value={draft.apiKey} onChange={(e) => set('apiKey', e.target.value.trim())} />
+            </label>
+            <label>
+              モデル
+              <div className="row">
+                <input list="models" value={draft.model} onChange={(e) => set('model', e.target.value)} />
+                <button type="button" onClick={fetchModels} disabled={!draft.apiKey}>
+                  使えるモデルを確認
+                </button>
+              </div>
+              <datalist id="models">
+                {models.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </label>
+            <p className="hint">初期値は {APP_DEFAULTS.model}（無料枠で使えるFlash系の最新版）です。</p>
+          </>
+        )}
       </section>
 
       <section className="card">

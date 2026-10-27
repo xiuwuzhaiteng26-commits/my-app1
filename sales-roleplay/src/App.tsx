@@ -4,7 +4,7 @@ import SetupPage from './components/SetupPage'
 import RoleplayPage, { type RoleplayResult } from './components/RoleplayPage'
 import ResultPage from './components/ResultPage'
 import HistoryPage from './components/HistoryPage'
-import { deleteRecord, loadHistory, loadSettings, saveRecord, saveSettings, type AppSettings } from './lib/storage'
+import { deleteRecord, llmConfig, loadHistory, loadSettings, saveRecord, saveSettings, type AppSettings } from './lib/storage'
 import type { Scenario, SessionRecord, SessionSetup } from './lib/types'
 
 type View =
@@ -17,7 +17,7 @@ type View =
 export default function App() {
   const [settings, setSettings] = useState<AppSettings>(loadSettings)
   const [history, setHistory] = useState<SessionRecord[]>(loadHistory)
-  const [view, setView] = useState<View>(() => (loadSettings().apiKey ? { name: 'setup' } : { name: 'settings' }))
+  const [view, setView] = useState<View>(() => (llmConfig(loadSettings()).apiKey ? { name: 'setup' } : { name: 'settings' }))
 
   const updateRecord = (r: SessionRecord) => {
     saveRecord(r)

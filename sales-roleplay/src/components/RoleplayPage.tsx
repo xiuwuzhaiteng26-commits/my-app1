@@ -6,7 +6,7 @@ import { SpeechListener, isSpeechRecognitionSupported, speak, stopSpeaking } fro
 import { summarize } from '../lib/faceAnalyzer'
 import { buildRoleplaySystemPrompt, END_MARKER, withTimeNote } from '../config/prompts'
 import { APP_DEFAULTS } from '../config/settings'
-import type { AppSettings } from '../lib/storage'
+import { llmConfig, type AppSettings } from '../lib/storage'
 import type { ChatMessage, FaceSample, FaceSummary, Scenario, SessionSetup } from '../lib/types'
 
 export interface RoleplayResult {
@@ -97,7 +97,8 @@ export default function RoleplayPage({ settings, setup, scenario, onFinish }: Pr
         const body = isLast ? withTimeNote(m.text, Math.floor(elapsedSec() / 60), setup.maxMinutes) : m.text
         turns.push({ role: m.role === 'user' ? 'user' : 'model', text: body })
       })
-      const reply = await generate(turns, { apiKey: settings.apiKey, model: settings.model, system: systemPrompt })
+      // 会話は待ち時間を短くしたいので、考える深さは low にする
+      const reply = await generate(turns, { ...llmConfig(settings), system: systemPrompt, effort: 'low' })
       const ended = reply.includes(END_MARKER)
       const clean = reply.replaceAll(END_MARKER, '').replace(/（経過時間[^）]*）/g, '').trim()
       setThinking(false)

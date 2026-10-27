@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { RUBRIC } from '../config/rubric'
 import { evaluateSession } from '../lib/evaluate'
-import type { AppSettings } from '../lib/storage'
+import { llmConfig, type AppSettings } from '../lib/storage'
 import type { SessionRecord } from '../lib/types'
 
 interface Props {
@@ -20,10 +20,7 @@ export default function ResultPage({ record, settings, onUpdate, onRetry }: Prop
     setLoading(true)
     setError('')
     try {
-      const evaluation = await evaluateSession(record.scenario, record.messages, record.face, settings, {
-        apiKey: settings.apiKey,
-        model: settings.model,
-      })
+      const evaluation = await evaluateSession(record.scenario, record.messages, record.face, settings, llmConfig(settings))
       onUpdate({ ...record, evaluation })
     } catch (e) {
       setError((e as Error).message)

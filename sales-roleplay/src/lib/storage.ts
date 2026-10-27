@@ -1,12 +1,25 @@
 // ブラウザ内（localStorage）への保存。データはこのPCのブラウザにだけ残ります
 import { APP_DEFAULTS } from '../config/settings'
 import { EMPTY_KNOWLEDGE } from '../config/knowledge'
+import type { LlmConfig, Provider } from './llm'
 import type { Knowledge, SessionRecord } from './types'
 
 export interface AppSettings extends Knowledge {
+  provider: Provider
+  claudeApiKey: string
+  claudeModel: string
+  /** Gemini のAPIキー */
   apiKey: string
+  /** Gemini のモデル */
   model: string
   ttsVoice: string
+}
+
+/** 設定から、今使うAIの接続情報を取り出す */
+export function llmConfig(s: AppSettings): LlmConfig {
+  return s.provider === 'claude'
+    ? { provider: 'claude', apiKey: s.claudeApiKey, model: s.claudeModel }
+    : { provider: 'gemini', apiKey: s.apiKey, model: s.model }
 }
 
 const SETTINGS_KEY = 'sales-roleplay:settings'
@@ -32,6 +45,9 @@ function write(key: string, value: unknown): void {
 export function loadSettings(): AppSettings {
   return {
     ...EMPTY_KNOWLEDGE,
+    provider: APP_DEFAULTS.provider,
+    claudeApiKey: '',
+    claudeModel: APP_DEFAULTS.claudeModel,
     apiKey: '',
     model: APP_DEFAULTS.model,
     ttsVoice: '',
