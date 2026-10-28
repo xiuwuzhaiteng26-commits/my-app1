@@ -3,7 +3,7 @@ import { listGeminiModels } from '../lib/llm'
 import { getJapaneseVoices, speak } from '../lib/speech'
 import { exportKnowledge, importKnowledge, type AppSettings } from '../lib/storage'
 import { KNOWLEDGE_FIELDS } from '../config/knowledge'
-import { APP_DEFAULTS, CLAUDE_MODELS } from '../config/settings'
+import { APP_DEFAULTS, CLAUDE_MODELS, PAUSE_PRESETS, type PausePreset } from '../config/settings'
 
 interface Props {
   settings: AppSettings
@@ -108,9 +108,39 @@ export default function SettingsPage({ settings, onSave }: Props) {
                 ))}
               </datalist>
             </label>
-            <p className="hint">初期値は {APP_DEFAULTS.model}（無料枠で使えるFlash系の最新版）です。</p>
+            <p className="hint">シナリオ作成と評価に使います。初期値は {APP_DEFAULTS.model}（無料枠で使えるFlash系の最新版）です。</p>
+            <label>
+              商談中の返事に使うモデル（速さ重視）
+              <input
+                list="models"
+                value={draft.geminiChatModel}
+                onChange={(e) => set('geminiChatModel', e.target.value)}
+              />
+            </label>
+            <p className="hint">
+              初期値は {APP_DEFAULTS.geminiChatModel}（軽くて速いモデル）です。返事の自然さを優先したいときは、上と同じモデル名にしてください。
+            </p>
           </>
         )}
+      </section>
+
+      <section className="card">
+        <h3>話し終わりの待ち時間</h3>
+        <p className="hint">
+          黙ってからAIに送るまでの時間です。「〜です」「〜ますか」で言い切ったときは短く、「〜で」「えーと」で止まったときは長めに待ちます。
+          話の途中で送られてしまうときは「長め」にしてください。
+        </p>
+        <select
+          id="pause-preset"
+          value={draft.pausePreset}
+          onChange={(e) => set('pausePreset', e.target.value as PausePreset)}
+        >
+          {(Object.keys(PAUSE_PRESETS) as PausePreset[]).map((k) => (
+            <option key={k} value={k}>
+              {PAUSE_PRESETS[k].label}（言い切り {PAUSE_PRESETS[k].sentenceEnd / 1000}秒／途中 {PAUSE_PRESETS[k].midSentence / 1000}秒）
+            </option>
+          ))}
+        </select>
       </section>
 
       <section className="card">

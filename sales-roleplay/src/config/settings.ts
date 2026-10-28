@@ -7,8 +7,10 @@ export const APP_DEFAULTS = {
   provider: 'gemini' as 'claude' | 'gemini',
   /** Claude のモデル。設定画面から変更できます */
   claudeModel: 'claude-opus-5-5',
-  /** Google AI Studio の無料枠で使えるモデル */
+  /** Google AI Studio の無料枠で使えるモデル（シナリオ作成・評価用。質を優先） */
   model: 'gemini-flash-latest',
+  /** 商談中の返事に使う Gemini のモデル（速さを優先）。見つからなければ上の model を使う */
+  geminiChatModel: 'gemini-flash-lite-latest',
   /** 商談時間の上限（分） */
   maxMinutesLimit: 60,
   defaultMinutes: 30,
@@ -16,17 +18,29 @@ export const APP_DEFAULTS = {
   wrapUpWarningMinutes: 5,
   /** 音声認識の言語 */
   speechLang: 'ja-JP',
-  /**
-   * 話し終わってから自動送信するまでの無音時間（ミリ秒）。
-   * 短いほど返事が早くなるが、話の途中の「間」で送られやすくなる
-   */
-  autoSendSilenceMs: 700,
+  /** 話し終わりの待ち時間の初期値（設定画面で変えられる） */
+  pausePreset: 'normal' as PausePreset,
+  /** AIの声が止まってから、この時間（ミリ秒）までに聞こえた声は、AIの声の拾い直しかどうかを確かめる */
+  echoWindowMs: 1500,
   /** AIが話している途中でも、こちらが話し始めたらAIの声を止める */
   bargeIn: true,
   /** 読み上げの速さ（1が標準） */
   ttsRate: 1.1,
   /** AIの返事をこの時間（ミリ秒）待っても来なければ、あきらめてエラーを表示する */
   aiTimeoutMs: 90000,
+}
+
+/**
+ * 話し終わりの待ち時間（ミリ秒）。
+ * sentenceEnd: 「〜です」「〜ますか」など言い切った形で終わったとき
+ * midSentence: 「〜で」「えーと」など続きそうなところで黙ったとき
+ * 短いほど返事が早くなるが、話の途中の「間」で送られやすくなる
+ */
+export type PausePreset = 'short' | 'normal' | 'long'
+export const PAUSE_PRESETS: Record<PausePreset, { label: string; sentenceEnd: number; midSentence: number }> = {
+  short: { label: '短め（テンポ重視）', sentenceEnd: 600, midSentence: 1500 },
+  normal: { label: 'ふつう', sentenceEnd: 900, midSentence: 2200 },
+  long: { label: '長め（考えながら話す人向け）', sentenceEnd: 1400, midSentence: 3200 },
 }
 
 // 設定画面で選べる Claude のモデル（料金は 100万トークンあたりの入力 / 出力）

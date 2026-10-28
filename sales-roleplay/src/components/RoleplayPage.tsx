@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Avatar from './Avatar'
 import CameraView from './CameraView'
 import { AbortedError, generateStream, type LlmTurn } from '../lib/llm'
-import { SpeechListener, TtsQueue, isSpeechRecognitionSupported, looksLikeEcho } from '../lib/speech'
+import { SpeechListener, TtsQueue, isSpeechRecognitionSupported, looksLikeEcho, silenceMsFor } from '../lib/speech'
 import { summarize } from '../lib/faceAnalyzer'
 import { buildRoleplaySystemPrompt, END_MARKER, withTimeNote } from '../config/prompts'
-import { APP_DEFAULTS } from '../config/settings'
-import { llmConfig, type AppSettings } from '../lib/storage'
+import { APP_DEFAULTS, PAUSE_PRESETS } from '../config/settings'
+import { chatLlmConfig, type AppSettings } from '../lib/storage'
 import type { ChatMessage, FaceSample, FaceSummary, Scenario, SessionSetup } from '../lib/types'
 
 export interface RoleplayResult {
@@ -60,6 +60,8 @@ export default function RoleplayPage({ settings, setup, scenario, onFinish }: Pr
   const carryRef = useRef('')
   /** 直近にAIが読み上げた文（マイクが拾ったAIの声を無視するため） */
   const recentAiSpeechRef = useRef('')
+  /** AIの声が止まった時刻 */
+  const aiSpeechEndedAtRef = useRef(0)
   const [systemPrompt] = useState(() => buildRoleplaySystemPrompt(scenario, setup, settings))
 
   const elapsedSec = () => (startRef.current ? Math.floor((Date.now() - startRef.current) / 1000) : 0)
@@ -72,6 +74,16 @@ export default function RoleplayPage({ settings, setup, scenario, onFinish }: Pr
   const replaceLastMessage = (text: string) => {
     const list = messagesRef.current
     commitMessages([...list.slice(0, -1), { ...list[list.length - 1], text }])
+  }
+
+  /**
+   * 聞こえた声が、スピーカーから出たAIの声を拾っただけかどうか。
+   * AIが話している間と、話し終えた直後だけ確かめる（それ以外は必ず自分の声として扱う）
+   */
+  const isEcho = (heard: string) => {
+    const aiAudible =
+      aiSpeakingRef.current || Date.now() - aiSpeechEndedAtRef.current < APP_DEFAULTS.echoWindowMs
+    return aiAudible && looksLikeEcho(heard, recentAiSpeechRef.current)
   }
 
   const speakAi = (text: string) => {
@@ -125,6 +137,7 @@ export default function RoleplayPage({ settings, setup, scenario, onFinish }: Pr
     const controller = new AbortController()
     requestRef.current = controller
     replyStartedRef.current = false
+    const sentAt = performance.now()
 
     const turns: LlmTurn[] = [{ role: 'user', text: JOIN_NOTE }]
     const history = messagesRef.current
@@ -138,7 +151,7 @@ export default function RoleplayPage({ settings, setup, scenario, onFinish }: Pr
     let spokenUpTo = 0
     try {
       full = await generateStream(turns, {
-        ...llmConfig(settings),
+        ...chatLlmConfig(settings),
         system: systemPrompt,
         signal: controller.signal,
         onText: (delta) => {
@@ -146,7 +159,7 @@ export default function RoleplayPage({ settings, setup, scenario, onFinish }: Pr
           if (!replyStartedRef.current) {
             replyStartedRef.current = true
             setThinking(false)
-            addMessage({ role: 'ai', text: '' })
+            addMessage({ role: 'ai', text: '', latencyMs: Math.round(performance.now() - sentAt) })
           }
           full += delta
           replaceLastMessage(cleanReply(full).trim())
@@ -196,20 +209,22 @@ export default function RoleplayPage({ settings, setup, scenario, onFinish }: Pr
       voiceName: settings.ttsVoice,
       rate: APP_DEFAULTS.ttsRate,
       onSpeakingChange: (speaking) => {
+        if (!speaking) aiSpeechEndedAtRef.current = Date.now()
         aiSpeakingRef.current = speaking
         setAiSpeaking(speaking)
       },
     })
-    listenerRef.current = new SpeechListener(APP_DEFAULTS.speechLang, APP_DEFAULTS.autoSendSilenceMs, {
+    const pause = PAUSE_PRESETS[settings.pausePreset] ?? PAUSE_PRESETS.normal
+    listenerRef.current = new SpeechListener(APP_DEFAULTS.speechLang, (t) => silenceMsFor(t, pause), {
       onInterim: (t) => {
         // スピーカーから出たAIの声を拾っただけなら、自分の発言として扱わない
-        const mine = t && !looksLikeEcho(t, recentAiSpeechRef.current)
+        const mine = t && !isEcho(t)
         interimRef.current = mine ? t : ''
         setInterim(mine ? t : '')
         if (mine) interruptRef.current()
       },
       onUtterance: (t) => {
-        if (looksLikeEcho(t, recentAiSpeechRef.current)) return
+        if (isEcho(t)) return
         void sendRef.current(t)
       },
       onError: setError,
@@ -294,7 +309,10 @@ export default function RoleplayPage({ settings, setup, scenario, onFinish }: Pr
           <div className="transcript" ref={transcriptRef}>
             {messages.map((m, i) => (
               <div key={i} className={`bubble ${m.role}`}>
-                <span className="who">{m.role === 'user' ? 'あなた' : scenario.contactName}</span>
+                <span className="who">
+                  {m.role === 'user' ? 'あなた' : scenario.contactName}
+                  {m.latencyMs !== undefined && <span className="latency">返事まで {(m.latencyMs / 1000).toFixed(1)}秒</span>}
+                </span>
                 {m.text}
               </div>
             ))}

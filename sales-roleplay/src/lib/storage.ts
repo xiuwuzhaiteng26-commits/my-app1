@@ -1,5 +1,5 @@
 // ブラウザ内（localStorage）への保存。データはこのPCのブラウザにだけ残ります
-import { APP_DEFAULTS } from '../config/settings'
+import { APP_DEFAULTS, type PausePreset } from '../config/settings'
 import { EMPTY_KNOWLEDGE } from '../config/knowledge'
 import type { LlmConfig, Provider } from './llm'
 import type { Knowledge, SessionRecord } from './types'
@@ -10,8 +10,11 @@ export interface AppSettings extends Knowledge {
   claudeModel: string
   /** Gemini のAPIキー */
   apiKey: string
-  /** Gemini のモデル */
+  /** Gemini のモデル（シナリオ作成・評価） */
   model: string
+  /** Gemini のモデル（商談中の返事） */
+  geminiChatModel: string
+  pausePreset: PausePreset
   ttsVoice: string
 }
 
@@ -20,6 +23,13 @@ export function llmConfig(s: AppSettings): LlmConfig {
   return s.provider === 'claude'
     ? { provider: 'claude', apiKey: s.claudeApiKey, model: s.claudeModel }
     : { provider: 'gemini', apiKey: s.apiKey, model: s.model }
+}
+
+/** 商談中の返事用の接続情報（速さを優先したモデル。使えなければ通常のモデルに戻す） */
+export function chatLlmConfig(s: AppSettings): LlmConfig & { fallbackModel?: string } {
+  const base = llmConfig(s)
+  if (s.provider !== 'gemini' || !s.geminiChatModel.trim() || s.geminiChatModel === s.model) return base
+  return { ...base, model: s.geminiChatModel.trim(), fallbackModel: s.model }
 }
 
 const SETTINGS_KEY = 'sales-roleplay:settings'
@@ -50,6 +60,8 @@ export function loadSettings(): AppSettings {
     claudeModel: APP_DEFAULTS.claudeModel,
     apiKey: '',
     model: APP_DEFAULTS.model,
+    geminiChatModel: APP_DEFAULTS.geminiChatModel,
+    pausePreset: APP_DEFAULTS.pausePreset,
     ttsVoice: '',
     ...read<Partial<AppSettings>>(SETTINGS_KEY, {}),
   }
