@@ -20,6 +20,8 @@ export const APP_DEFAULTS = {
   autoSendSilenceMs: 1800,
   /** 読み上げの速さ（1が標準） */
   ttsRate: 1.1,
+  /** AIの返事をこの時間（ミリ秒）待っても来なければ、あきらめてエラーを表示する */
+  aiTimeoutMs: 90000,
 }
 
 // 設定画面で選べる Claude のモデル（料金は 100万トークンあたりの入力 / 出力）

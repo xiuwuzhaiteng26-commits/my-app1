@@ -1,6 +1,7 @@
 // AI（Claude または Gemini）との通信
 // どちらを使うかは設定画面で選びます。画面側は generate() / generateJson() だけを呼びます
 import Anthropic from '@anthropic-ai/sdk'
+import { APP_DEFAULTS } from '../config/settings'
 
 export interface LlmTurn {
   role: 'user' | 'model'
@@ -41,7 +42,12 @@ const FALLBACK_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-opus-5'
 
 async function generateClaude(turns: LlmTurn[], opts: LlmOptions): Promise<string> {
   // APIキーは各自のブラウザにだけ保存されたものを使う（サーバーを置かないため、ブラウザから直接呼ぶ）
-  const client = new Anthropic({ apiKey: opts.apiKey, dangerouslyAllowBrowser: true })
+  const client = new Anthropic({
+    apiKey: opts.apiKey,
+    dangerouslyAllowBrowser: true,
+    timeout: APP_DEFAULTS.aiTimeoutMs,
+    maxRetries: 1,
+  })
   const useFallback = FALLBACK_MODELS.includes(opts.model)
   try {
     const res = await client.beta.messages.create({
@@ -64,6 +70,8 @@ async function generateClaude(turns: LlmTurn[], opts: LlmOptions): Promise<strin
     if (!text) throw new Error('AIから空の応答が返りました。もう一度お試しください。')
     return text
   } catch (e) {
+    if (e instanceof Anthropic.APIConnectionTimeoutError) throw new Error(TIMEOUT_MESSAGE)
+    if (e instanceof Anthropic.APIConnectionError) throw new Error(NETWORK_MESSAGE)
     if (e instanceof Anthropic.AuthenticationError) throw new Error('Claude のAPIキーが正しくありません。「設定」を確認してください。')
     if (e instanceof Anthropic.RateLimitError) throw new Error('利用上限に達しました。少し待ってから再度お試しください。')
     if (e instanceof Anthropic.APIError) throw new Error(`AIの呼び出しに失敗しました（${e.status}）：${e.message}`)
@@ -71,26 +79,44 @@ async function generateClaude(turns: LlmTurn[], opts: LlmOptions): Promise<strin
   }
 }
 
+const TIMEOUT_MESSAGE = `AIの返事が${APP_DEFAULTS.aiTimeoutMs / 1000}秒たっても来ませんでした。混み合っている可能性があります。少し待ってからもう一度押すか、「設定」で速いモデルに変えてみてください。`
+const NETWORK_MESSAGE = 'AIと通信できませんでした。インターネットの接続を確認して、もう一度お試しください。'
+
 // ---------- Gemini ----------
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
 async function generateGemini(turns: LlmTurn[], opts: LlmOptions): Promise<string> {
-  const res = await fetch(`${GEMINI_BASE}/models/${encodeURIComponent(opts.model)}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': opts.apiKey },
-    body: JSON.stringify({
-      systemInstruction: opts.system ? { parts: [{ text: opts.system }] } : undefined,
-      contents: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
-      generationConfig: {
-        temperature: opts.temperature ?? 0.8,
-        responseMimeType: opts.json ? 'application/json' : 'text/plain',
-      },
-    }),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${GEMINI_BASE}/models/${encodeURIComponent(opts.model)}:generateContent`, {
+      method: 'POST',
+      // 返事が来ないまま待ち続けないように、一定時間で打ち切る
+      signal: AbortSignal.timeout(APP_DEFAULTS.aiTimeoutMs),
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': opts.apiKey },
+      body: JSON.stringify({
+        systemInstruction: opts.system ? { parts: [{ text: opts.system }] } : undefined,
+        contents: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+        generationConfig: {
+          temperature: opts.temperature ?? 0.8,
+          responseMimeType: opts.json ? 'application/json' : 'text/plain',
+        },
+      }),
+    })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'TimeoutError') throw new Error(TIMEOUT_MESSAGE)
+    throw new Error(NETWORK_MESSAGE)
+  }
   if (!res.ok) {
+    if (res.status === 400 || res.status === 403) {
+      const body = await res.text()
+      if (/API key/i.test(body)) throw new Error('Gemini のAPIキーが正しくありません。「設定」を確認してください。')
+      throw new Error(`AIの呼び出しに失敗しました（${res.status}）：${body.slice(0, 300)}`)
+    }
+    if (res.status === 404) throw new Error(`モデル「${opts.model}」が見つかりません。「設定」の「使えるモデルを確認」で選び直してください。`)
     const body = await res.text()
     if (res.status === 429) throw new Error('無料枠の利用上限に達しました。少し待ってから再度お試しください。')
+    if (res.status === 503) throw new Error('Gemini が混み合っています。少し待ってからもう一度押してください。')
     throw new Error(`AIの呼び出しに失敗しました（${res.status}）：${body.slice(0, 300)}`)
   }
   const data = await res.json()
