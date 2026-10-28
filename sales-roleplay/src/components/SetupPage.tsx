@@ -27,11 +27,15 @@ export default function SetupPage({ settings, onStart }: Props) {
   })
   const [scenario, setScenario] = useState<Scenario | null>(null)
   const [loading, setLoading] = useState(false)
+  const [waited, setWaited] = useState(0)
   const [error, setError] = useState('')
   const samples = parseSamples(settings.sampleBackgrounds)
 
   const create = async () => {
     setLoading(true)
+    setWaited(0)
+    const started = Date.now()
+    const tick = window.setInterval(() => setWaited(Math.floor((Date.now() - started) / 1000)), 1000)
     setError('')
     try {
       const s = await generateJson<Scenario>(buildScenarioPrompt(setup, settings), {
@@ -43,6 +47,7 @@ export default function SetupPage({ settings, onStart }: Props) {
     } catch (e) {
       setError((e as Error).message)
     } finally {
+      window.clearInterval(tick)
       setLoading(false)
     }
   }
@@ -104,8 +109,11 @@ export default function SetupPage({ settings, onStart }: Props) {
           />
         </label>
         <button className="primary" onClick={create} disabled={loading || !llmConfig(settings).apiKey}>
-          {loading ? 'シナリオを作成中…' : scenario ? 'シナリオを作り直す' : 'シナリオを作成'}
+          {loading ? `シナリオを作成中…（${waited}秒）` : scenario ? 'シナリオを作り直す' : 'シナリオを作成'}
         </button>
+        {loading && waited >= 20 && (
+          <p className="hint">AIが考えています。混み具合によっては1分ほどかかります（最大{APP_DEFAULTS.aiTimeoutMs / 1000}秒で打ち切ります）。</p>
+        )}
         {!llmConfig(settings).apiKey && <p className="error">先に「設定」でAPIキーを入力してください。</p>}
         {error && <p className="error">{error}</p>}
       </section>
