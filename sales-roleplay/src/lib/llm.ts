@@ -228,6 +228,9 @@ const geminiThinkingIndex = new Map<string, number>()
 /** このキーでは見つからなかったモデル（次からは最初から代わりのモデルを使う） */
 const missingGeminiModels = new Set<string>()
 
+/** このキーでは見つからなかったモデル（次からは最初から代わりのモデルを使う） */
+const missingGeminiModels = new Set<string>()
+
 async function streamGemini(turns: LlmTurn[], opts: StreamOptions): Promise<string> {
   if (opts.fallbackModel && missingGeminiModels.has(opts.model)) {
     return streamGemini(turns, { ...opts, model: opts.fallbackModel, fallbackModel: undefined })
@@ -266,6 +269,11 @@ async function streamGemini(turns: LlmTurn[], opts: StreamOptions): Promise<stri
     }
     // 設定なしでも受け付けられないなら、会話用のモデルをあきらめて通常のモデルで続ける
     if ((res.status === 400 || res.status === 404) && opts.fallbackModel) {
+      // 会話用の速いモデルが使えないキーでは、通常のモデルで続ける
+      missingGeminiModels.add(opts.model)
+      return streamGemini(turns, { ...opts, model: opts.fallbackModel, fallbackModel: undefined })
+    }
+    if (res.status === 404 && opts.fallbackModel) {
       // 会話用の速いモデルが使えないキーでは、通常のモデルで続ける
       missingGeminiModels.add(opts.model)
       return streamGemini(turns, { ...opts, model: opts.fallbackModel, fallbackModel: undefined })
