@@ -133,3 +133,4 @@ ul.improve li::marker { content: '△ '; color: var(--warn); }
 .camera-select { font-size: 13px; margin: 0; }
 .camera-select select { margin-top: 4px; }
 .tile-overlay { overflow-y: auto; font-size: 14px; line-height: 1.6; }
+.latency { margin-left: 8px; font-variant-numeric: tabular-nums; }

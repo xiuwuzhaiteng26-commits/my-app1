@@ -6,6 +6,8 @@ export interface ChatMessage {
   text: string
   /** 商談開始からの経過秒数 */
   at: number
+  /** AIの返事：こちらが話し終えてから返事の最初の文字が届くまでの時間（ミリ秒） */
+  latencyMs?: number
 }
 
 /** テレアポ背景からAIが作る「今回の商談の設定」 */

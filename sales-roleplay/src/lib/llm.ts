@@ -166,6 +166,8 @@ export class AbortedError extends Error {
 }
 
 export interface StreamOptions extends LlmOptions {
+  /** model が見つからなかったときに代わりに使うモデル（Gemini の会話用モデル向け） */
+  fallbackModel?: string
   /** 返事の文字が届くたびに呼ばれる（届いた分だけ） */
   onText: (delta: string) => void
   signal: AbortSignal
@@ -222,7 +224,13 @@ const GEMINI_FAST_THINKING: (Record<string, unknown> | null)[] = [
 ]
 let geminiThinkingIndex = 0
 
+/** このキーでは見つからなかったモデル（次からは最初から代わりのモデルを使う） */
+const missingGeminiModels = new Set<string>()
+
 async function streamGemini(turns: LlmTurn[], opts: StreamOptions): Promise<string> {
+  if (opts.fallbackModel && missingGeminiModels.has(opts.model)) {
+    return streamGemini(turns, { ...opts, model: opts.fallbackModel, fallbackModel: undefined })
+  }
   for (;;) {
     const thinking = GEMINI_FAST_THINKING[geminiThinkingIndex]
     let res: Response
@@ -253,6 +261,11 @@ async function streamGemini(turns: LlmTurn[], opts: StreamOptions): Promise<stri
         continue
       }
       throw new Error(`AIの呼び出しに失敗しました（400）：${body.slice(0, 300)}`)
+    }
+    if (res.status === 404 && opts.fallbackModel) {
+      // 会話用の速いモデルが使えないキーでは、通常のモデルで続ける
+      missingGeminiModels.add(opts.model)
+      return streamGemini(turns, { ...opts, model: opts.fallbackModel, fallbackModel: undefined })
     }
     if (!res.ok) throw await geminiHttpError(res, opts.model)
     return readGeminiSse(res, opts)

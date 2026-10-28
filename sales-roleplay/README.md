@@ -19,7 +19,7 @@
 1. [Google AI Studio](https://aistudio.google.com/apikey) で無料のAPIキーを発行する（有料の Claude も選べます：[Claude Console](https://platform.claude.com/settings/keys)）
 2. アプリを開き「設定」でAPIキーと社内の情報（サービス情報・事実・他の選択肢との違いなど）を入力して保存。社内で作った設定ファイルがあれば「ファイルから読み込む」で取り込む
 3. 「練習する」でアポ背景を貼り付け → 相手のタイプ・難易度・時間を選んで「シナリオを作成」
-4. 「商談を始める」→「商談に入る」。マイクで話すと、無音が約0.7秒続いたところで自動で送信されます。AIが話している途中でも、話し始めればAIは止まります
+4. 「商談を始める」→「商談に入る」。マイクで話して、黙ると自動で送信されます（「〜です」「〜ますか」で言い切ったときは短く、「〜で」「えーと」で止まったときは長めに待ちます。待ち時間は設定で変えられます）。AIが話している途中でも、話し始めればAIは止まります
 5. 終わったら「商談を終了して評価」（AIが商談を締めくくった場合は自動で終了）
 
 **ブラウザはパソコンの Google Chrome か Microsoft Edge を使ってください**（音声認識に対応しているため）。イヤホンを使うと、AIの声をマイクが拾いにくくなり、話し始めたときにAIを止める動きが安定します。
@@ -61,7 +61,9 @@ npm run dev
 | サービス外で聞いてくる話題 | `src/config/knowledge.ts` の `OFF_TOPIC_THEMES` |
 | 設定画面の入力欄（説明文・入力例） | `src/config/knowledge.ts` の `KNOWLEDGE_FIELDS` |
 | AIへの指示文（話し方・評価の厳しさ） | `src/config/prompts.ts` |
-| 商談時間の上限、自動送信までの無音時間、読み上げ速度 | `src/config/settings.ts` の `APP_DEFAULTS` |
+| 商談時間の上限、読み上げ速度、会話用の Gemini モデル | `src/config/settings.ts` の `APP_DEFAULTS` |
+| 話し終わりの待ち時間（短め・ふつう・長め） | `src/config/settings.ts` の `PAUSE_PRESETS` |
+| 「言い切った」とみなす語尾 | `src/lib/speech.ts` の `SENTENCE_FINISHED` |
 | アバターの見た目 | `src/components/Avatar.tsx` |
 | 使えるClaudeのモデル | `src/config/settings.ts` の `CLAUDE_MODELS` |
 | AIとの通信（ほかのAIを足す） | `src/lib/llm.ts` |

@@ -47,22 +47,29 @@ export interface ListenerCallbacks {
 export class SpeechListener {
   private rec: RecognitionLike | null = null
   private active = false
+  /** 確定した文字 */
   private buffer = ''
+  /** まだ確定していない（認識途中の）文字 */
+  private interim = ''
+  /** 送信済みの認識結果の番号。これ以下の結果があとから確定しても二重に送らない */
+  private consumedUpTo = -1
+  private resultCount = 0
   private silenceTimer: number | undefined
   private lang: string
-  private silenceMs: number
+  private silenceMsFor: (text: string) => number
   private cb: ListenerCallbacks
 
-  constructor(lang: string, silenceMs: number, cb: ListenerCallbacks) {
+  /** silenceMsFor: いま聞き取れている文字を見て、何ミリ秒黙ったら送るかを返す */
+  constructor(lang: string, silenceMsFor: (text: string) => number, cb: ListenerCallbacks) {
     this.lang = lang
-    this.silenceMs = silenceMs
+    this.silenceMsFor = silenceMsFor
     this.cb = cb
   }
 
   start(): void {
     const Ctor = getRecognitionCtor()
     if (!Ctor) {
-      this.cb.onError('このブラウザは音声認識に対応していません。Google Chrome をお使いください。')
+      this.cb.onError('このブラウザは音声認識に対応していません。Chrome か Edge をお使いください。')
       return
     }
     this.active = true
@@ -70,23 +77,34 @@ export class SpeechListener {
     rec.lang = this.lang
     rec.continuous = true
     rec.interimResults = true
+    this.consumedUpTo = -1
+    this.resultCount = 0
     rec.onresult = (e) => {
       let interim = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (i <= this.consumedUpTo) continue
         const r = e.results[i]
-        if (r.isFinal) this.buffer += r[0].transcript
-        else interim += r[0].transcript
+        if (r.isFinal) {
+          this.buffer += r[0].transcript
+          this.consumedUpTo = i
+        } else {
+          interim += r[0].transcript
+        }
       }
+      this.resultCount = e.results.length
+      this.interim = interim
       this.cb.onInterim(this.buffer + interim)
       this.resetSilenceTimer()
     }
     rec.onerror = (e) => {
       if (e.error === 'not-allowed') this.cb.onError('マイクの使用が許可されていません。')
     }
-    // Chrome は一定時間で認識が止まるので、聞き取り中なら自動で再開する
+    // ブラウザは一定時間で認識が止まるので、聞き取り中なら自動で再開する（結果の番号は0から振り直し）
     rec.onend = () => {
       if (this.active) {
         try {
+          this.consumedUpTo = -1
+          this.resultCount = 0
           rec.start()
         } catch {
           // すでに開始済みの場合は無視
@@ -99,14 +117,19 @@ export class SpeechListener {
 
   private resetSilenceTimer(): void {
     window.clearTimeout(this.silenceTimer)
-    this.silenceTimer = window.setTimeout(() => this.flush(), this.silenceMs)
+    const text = (this.buffer + this.interim).trim()
+    if (!text) return
+    this.silenceTimer = window.setTimeout(() => this.flush(), this.silenceMsFor(text))
   }
 
-  /** たまっている発言をすぐに送る */
+  /** たまっている発言をすぐに送る（認識途中の文字も含める） */
   flush(): void {
     window.clearTimeout(this.silenceTimer)
-    const text = this.buffer.trim()
+    const text = (this.buffer + this.interim).trim()
     this.buffer = ''
+    this.interim = ''
+    // 認識途中だった分があとから確定しても、もう送ったので無視する
+    this.consumedUpTo = this.resultCount - 1
     this.cb.onInterim('')
     if (text) this.cb.onUtterance(text)
   }
@@ -124,9 +147,22 @@ export class SpeechListener {
 
   stop(): void {
     this.buffer = ''
+    this.interim = ''
     this.pause()
   }
 }
+
+/**
+ * 言い切った形（「〜です」「〜ますか」など）で終わっていれば短く、
+ * 「〜で」「〜けど」「えーと」のように続きそうなら長く待ってから送る。
+ */
+export function silenceMsFor(text: string, pause: { sentenceEnd: number; midSentence: number }): number {
+  const t = text.trim().replace(/[\s　]+$/, '')
+  return SENTENCE_FINISHED.test(t) ? pause.sentenceEnd : pause.midSentence
+}
+
+const SENTENCE_FINISHED =
+  /(です|ます|ました|ません|でした|でしょう|ですか|ますか|でしょうか|ですね|ますね|ですよ|ますよ|ください|ございます|お願いします|はい|いいえ|そうです|なるほど|か|ね|よ|[。？！?!])$/
 
 // ---------- 音声合成 ----------
 
