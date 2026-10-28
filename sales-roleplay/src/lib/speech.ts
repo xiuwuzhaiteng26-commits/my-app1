@@ -42,7 +42,7 @@ export interface ListenerCallbacks {
 
 /**
  * 話し終わりを無音時間で判定して、1回の発言としてまとめるリスナー。
- * AIが話している間は pause() してAIの声を拾わないようにします。
+ * マイクを切ったときは stop()、入れ直したときは resume() で聞き取りを再開します。
  */
 export class SpeechListener {
   private rec: RecognitionLike | null = null
@@ -155,4 +155,91 @@ export function speak(text: string, opts: { voiceName?: string; rate?: number; o
 
 export function stopSpeaking(): void {
   if ('speechSynthesis' in window) speechSynthesis.cancel()
+}
+
+// ---------- 文ごとの読み上げ（返事が全部そろう前に話し始めるため） ----------
+
+/**
+ * 文を受け取った順に読み上げる。stop() で途中でも止められる（ユーザーが話し始めたとき用）。
+ */
+export class TtsQueue {
+  private pending = 0
+  /** stop() の前に予約された読み上げの完了通知を無視するための番号 */
+  private generation = 0
+  private idleWaiters: (() => void)[] = []
+  private voiceName: string | undefined
+  private rate: number
+  private onSpeakingChange: (speaking: boolean) => void
+
+  constructor(opts: { voiceName?: string; rate?: number; onSpeakingChange: (speaking: boolean) => void }) {
+    this.voiceName = opts.voiceName
+    this.rate = opts.rate ?? 1
+    this.onSpeakingChange = opts.onSpeakingChange
+  }
+
+  get speaking(): boolean {
+    return this.pending > 0
+  }
+
+  enqueue(text: string): void {
+    if (!text.trim() || !('speechSynthesis' in window)) return
+    const gen = this.generation
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = 'ja-JP'
+    u.rate = this.rate
+    const voice = getJapaneseVoices().find((v) => v.name === this.voiceName) ?? getJapaneseVoices()[0]
+    if (voice) u.voice = voice
+    const done = () => {
+      if (gen !== this.generation) return
+      this.pending = Math.max(0, this.pending - 1)
+      if (this.pending === 0) this.becomeIdle()
+    }
+    u.onend = done
+    u.onerror = done
+    if (this.pending === 0) this.onSpeakingChange(true)
+    this.pending++
+    speechSynthesis.speak(u)
+  }
+
+  stop(): void {
+    this.generation++
+    const wasSpeaking = this.pending > 0
+    this.pending = 0
+    if ('speechSynthesis' in window) speechSynthesis.cancel()
+    if (wasSpeaking) this.becomeIdle()
+  }
+
+  /** 予約した読み上げがすべて終わるまで待つ */
+  whenIdle(): Promise<void> {
+    if (this.pending === 0) return Promise.resolve()
+    return new Promise((resolve) => this.idleWaiters.push(resolve))
+  }
+
+  private becomeIdle(): void {
+    this.onSpeakingChange(false)
+    const waiters = this.idleWaiters
+    this.idleWaiters = []
+    waiters.forEach((w) => w())
+  }
+}
+
+// ---------- 自分の声か、AIの読み上げを拾っただけかの判定 ----------
+
+const normalize = (s: string) => s.replace(/[\s、。，．,.！？!?「」『』（）()ー〜…・]/g, '')
+
+/**
+ * マイクがスピーカーから出たAIの声を拾ってしまうことがあるので、
+ * 聞き取った文字がAIの直近の発言とほぼ同じなら「AIの声」とみなして無視する。
+ */
+export function looksLikeEcho(heard: string, recentAiSpeech: string): boolean {
+  const h = normalize(heard)
+  if (h.length < 2) return true
+  const ai = normalize(recentAiSpeech)
+  if (!ai) return false
+  if (ai.includes(h)) return true
+  // 3文字ずつに区切って、半分以上がAIの発言に含まれていればエコーとみなす
+  const grams: string[] = []
+  for (let i = 0; i + 3 <= h.length; i++) grams.push(h.slice(i, i + 3))
+  if (grams.length === 0) return false
+  return grams.filter((g) => ai.includes(g)).length / grams.length >= 0.5
 }
