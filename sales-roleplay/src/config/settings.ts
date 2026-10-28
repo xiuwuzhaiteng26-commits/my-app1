@@ -16,8 +16,13 @@ export const APP_DEFAULTS = {
   wrapUpWarningMinutes: 5,
   /** 音声認識の言語 */
   speechLang: 'ja-JP',
-  /** 話し終わってから自動送信するまでの無音時間（ミリ秒） */
-  autoSendSilenceMs: 1800,
+  /**
+   * 話し終わってから自動送信するまでの無音時間（ミリ秒）。
+   * 短いほど返事が早くなるが、話の途中の「間」で送られやすくなる
+   */
+  autoSendSilenceMs: 700,
+  /** AIが話している途中でも、こちらが話し始めたらAIの声を止める */
+  bargeIn: true,
   /** 読み上げの速さ（1が標準） */
   ttsRate: 1.1,
   /** AIの返事をこの時間（ミリ秒）待っても来なければ、あきらめてエラーを表示する */

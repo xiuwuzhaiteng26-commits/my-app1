@@ -129,3 +129,7 @@ ul.improve li::marker { content: '△ '; color: var(--warn); }
 .file-button input { display: none; }
 .radio { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: normal; }
 .radio input { width: auto; margin: 0; }
+.camera-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.camera-select { font-size: 13px; margin: 0; }
+.camera-select select { margin-top: 4px; }
+.tile-overlay { overflow-y: auto; font-size: 14px; line-height: 1.6; }
