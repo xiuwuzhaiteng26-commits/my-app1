@@ -228,9 +228,6 @@ const geminiThinkingIndex = new Map<string, number>()
 /** このキーでは見つからなかったモデル（次からは最初から代わりのモデルを使う） */
 const missingGeminiModels = new Set<string>()
 
-/** このキーでは見つからなかったモデル（次からは最初から代わりのモデルを使う） */
-const missingGeminiModels = new Set<string>()
-
 async function streamGemini(turns: LlmTurn[], opts: StreamOptions): Promise<string> {
   if (opts.fallbackModel && missingGeminiModels.has(opts.model)) {
     return streamGemini(turns, { ...opts, model: opts.fallbackModel, fallbackModel: undefined })
