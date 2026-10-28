@@ -100,7 +100,7 @@ async function generateGemini(turns: LlmTurn[], opts: LlmOptions): Promise<strin
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': opts.apiKey },
       body: JSON.stringify({
         systemInstruction: opts.system ? { parts: [{ text: opts.system }] } : undefined,
-        contents: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+        contents: toGeminiContents(turns),
         generationConfig: {
           temperature: opts.temperature ?? 0.8,
           responseMimeType: opts.json ? 'application/json' : 'text/plain',
@@ -222,7 +222,8 @@ const GEMINI_FAST_THINKING: (Record<string, unknown> | null)[] = [
   { thinkingLevel: 'low' },
   null,
 ]
-let geminiThinkingIndex = 0
+/** モデルごとに、受け付けられた書き方の番号を覚えておく */
+const geminiThinkingIndex = new Map<string, number>()
 
 /** このキーでは見つからなかったモデル（次からは最初から代わりのモデルを使う） */
 const missingGeminiModels = new Set<string>()
@@ -232,7 +233,8 @@ async function streamGemini(turns: LlmTurn[], opts: StreamOptions): Promise<stri
     return streamGemini(turns, { ...opts, model: opts.fallbackModel, fallbackModel: undefined })
   }
   for (;;) {
-    const thinking = GEMINI_FAST_THINKING[geminiThinkingIndex]
+    const index = geminiThinkingIndex.get(opts.model) ?? 0
+    const thinking = GEMINI_FAST_THINKING[index]
     let res: Response
     try {
       res = await fetch(
@@ -243,7 +245,7 @@ async function streamGemini(turns: LlmTurn[], opts: StreamOptions): Promise<stri
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': opts.apiKey },
           body: JSON.stringify({
             systemInstruction: opts.system ? { parts: [{ text: opts.system }] } : undefined,
-            contents: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+            contents: toGeminiContents(turns),
             generationConfig: {
               temperature: opts.temperature ?? 0.8,
               ...(thinking ? { thinkingConfig: thinking } : {}),
@@ -254,15 +256,16 @@ async function streamGemini(turns: LlmTurn[], opts: StreamOptions): Promise<stri
     } catch (e) {
       throw fetchError(e, opts.signal)
     }
+    // 「考える時間を減らす」設定はモデルによって受け付けられず、理由の書かれていない 400 が返ることがある。
+    // そのときは次の書き方（最後は設定なし）でやり直す
     if (res.status === 400 && thinking) {
       const body = await res.text()
-      if (/thinking/i.test(body)) {
-        geminiThinkingIndex++
-        continue
-      }
-      throw new Error(`AIの呼び出しに失敗しました（400）：${body.slice(0, 300)}`)
+      if (/API key/i.test(body)) throw new Error('Gemini のAPIキーが正しくありません。「設定」を確認してください。')
+      geminiThinkingIndex.set(opts.model, index + 1)
+      continue
     }
-    if (res.status === 404 && opts.fallbackModel) {
+    // 設定なしでも受け付けられないなら、会話用のモデルをあきらめて通常のモデルで続ける
+    if ((res.status === 400 || res.status === 404) && opts.fallbackModel) {
       // 会話用の速いモデルが使えないキーでは、通常のモデルで続ける
       missingGeminiModels.add(opts.model)
       return streamGemini(turns, { ...opts, model: opts.fallbackModel, fallbackModel: undefined })
@@ -270,6 +273,18 @@ async function streamGemini(turns: LlmTurn[], opts: StreamOptions): Promise<stri
     if (!res.ok) throw await geminiHttpError(res, opts.model)
     return readGeminiSse(res, opts)
   }
+}
+
+/** 空の発言を除き、同じ話し手が続いたら1つにまとめる（Gemini はどちらも受け付けないことがある） */
+function toGeminiContents(turns: LlmTurn[]) {
+  const merged: LlmTurn[] = []
+  for (const t of turns) {
+    if (!t.text.trim()) continue
+    const last = merged[merged.length - 1]
+    if (last && last.role === t.role) last.text += '\n' + t.text
+    else merged.push({ ...t })
+  }
+  return merged.map((t) => ({ role: t.role, parts: [{ text: t.text }] }))
 }
 
 async function readGeminiSse(res: Response, opts: StreamOptions): Promise<string> {
