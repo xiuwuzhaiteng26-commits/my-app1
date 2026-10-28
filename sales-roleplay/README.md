@@ -7,16 +7,16 @@
 
 | 機能 | 仕組み | 費用 |
 |---|---|---|
-| 商談相手の自動作成（アポ背景から） | Claude API（設定で Gemini にも切り替え可） | 使った分だけ |
-| AI職員との音声での会話 | Claude API＋ブラウザの音声認識・読み上げ | 使った分だけ |
+| 商談相手の自動作成（アポ背景から） | Gemini API（設定で Claude にも切り替え可） | 無料枠（Claudeは使った分だけ） |
+| AI職員との音声での会話 | Gemini API＋ブラウザの音声認識・読み上げ | 無料枠 |
 | アバター表示（話すと口が動く） | SVG | 無料 |
 | 自分のカメラ映像・目線・表情の計測 | MediaPipe（ブラウザ内で処理。映像は外部に送らない） | 無料 |
-| 商談の評価・改善点・回答例 | Claude API | 使った分だけ |
+| 商談の評価・改善点・回答例 | Gemini API | 無料枠 |
 | 練習の履歴 | ブラウザ内に保存 | 無料 |
 
 ## 使い方
 
-1. [Claude Console](https://platform.claude.com/settings/keys) でAPIキーを発行する（クレジットの購入が必要）。無料で試すだけなら [Google AI Studio](https://aistudio.google.com/apikey) の Gemini も選べます
+1. [Google AI Studio](https://aistudio.google.com/apikey) で無料のAPIキーを発行する（有料の Claude も選べます：[Claude Console](https://platform.claude.com/settings/keys)）
 2. アプリを開き「設定」でAPIキーと社内の情報（サービス情報・事実・他の選択肢との違いなど）を入力して保存。社内で作った設定ファイルがあれば「ファイルから読み込む」で取り込む
 3. 「練習する」でアポ背景を貼り付け → 相手のタイプ・難易度・時間を選んで「シナリオを作成」
 4. 「商談を始める」→「商談に入る」。マイクで話すと、無音が約2秒続いたところで自動で送信されます
@@ -68,12 +68,12 @@ npm run dev
 
 ## 注意点
 
-- **料金**：Claude は使った分だけ料金がかかります。モデルは設定画面で選べます（Opus 5.5 が最も賢く、Haiku 5.5 が最も安い）。同じ指示文はキャッシュして料金を抑えています。
-- **データの扱い**：Claude API に送った内容は、初期設定ではAIの学習に使われません。Gemini の無料枠では、送った内容が Google のサービス改善に使われることがあるため、社内の情報を入れる場合は Claude を使ってください。
+- **料金**：初期設定の Gemini は無料枠で使えます（1分・1日あたりの回数に上限あり）。Claude を選ぶと使った分だけ料金がかかります。
+- **データの扱い**：Gemini の無料枠では、設定画面の内容・商談の会話・評価が Google のサービス改善に使われ、人が読むこともあります。社外秘の情報、実在の大学名・人名は入れないでください。Chrome の音声認識も、声を Google のサーバーで文字にしています。カメラの映像は外部に送りません。Claude API に送った内容は、初期設定ではAIの学習に使われません。
 - **目線・表情は参考値**：Webカメラの位置・照明・メガネで判定がぶれます。
 - **データの保存先**：設定と履歴は、使っているブラウザの中だけに保存されます。別のPCやブラウザとは共有されません。
 
 ## 公開（GitHub Pages）
 
-このフォルダを独立したリポジトリに移すと、`.github/workflows/deploy.yml` によって main ブランチへのpushで自動公開されます（リポジトリの Settings → Pages → Source を「GitHub Actions」にしてください）。
+`my-app1` の main ブランチに push すると、リポジトリ直下の `.github/workflows/deploy.yml` がこのアプリもビルドし、`https://xiuwuzhaiteng26-commits.github.io/my-app1/sales-roleplay/` に公開します。
 インターン生は公開URLを開き、APIキーを入力し、社内で受け取った設定ファイルを読み込んで使います。
